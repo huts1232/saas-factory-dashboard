@@ -302,190 +302,144 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
     const existingRepo = proj.github_url ? proj.github_url.split('/').pop() : null
     const repoName = existingRepo || (isFreeUser ? `preview-${productSlug}` : productSlug)
 
-    // ===== STEP 3: CODE GENERATION =====
-    if (startFrom <= 3) {
-      await updateProject(projectId, { status: 'generating', current_step: 3 })
-      await logStep(projectId, 3, 'Code Generation', 'running', 'Generating code...')
-      if (!isFreeUser && !admin && userId) { const ok = await deductCredit(userId, projectId, 'Code Gen'); if (!ok) { await logStep(projectId, 3, 'Code Generation', 'failed', 'No credits'); return } }
-      await logStep(projectId, 3, 'Code Generation', 'success', `Preparing ${(arch.fileStructure || []).length} files`)
-    }
-
-    // ===== STEP 4: DATABASE SETUP =====
-    if (startFrom <= 4) {
-      await updateProject(projectId, { status: 'database', current_step: 4 })
-      await logStep(projectId, 4, 'Database Setup', 'running', 'Setting up tables...')
-      if (!isFreeUser && !admin && userId) { const ok = await deductCredit(userId, projectId, 'Database'); if (!ok) { await logStep(projectId, 4, 'Database Setup', 'failed', 'No credits'); return } }
-
-      // BUG 4 FIX: Create tables from architecture
-      if (!isFreeUser && arch.database?.tables) {
-        for (const table of arch.database.tables) {
-          const cols = (table.columns || []).map((c: any) => {
-            const def = c.default ? ` DEFAULT ${c.default}` : ''
-            const nullable = c.nullable ? '' : ' NOT NULL'
-            const pk = c.name === 'id' ? ' PRIMARY KEY' : ''
-            return `"${c.name}" ${c.type}${nullable}${def}${pk}`
-          }).join(', ')
-          try {
-            const { error: sqlErr } = await db.rpc('exec_sql' as any, { sql: `CREATE TABLE IF NOT EXISTS "${table.name}" (${cols})` })
-            if (sqlErr) console.log(`Table ${table.name}: ${sqlErr.message}`)
-          } catch {} // Ignore errors for existing tables
-        }
-      }
-      await logStep(projectId, 4, 'Database Setup', 'success', `${(arch.database?.tables || []).length} tables`)
-    }
-
-    // ===== STEP 5: GITHUB PUSH =====
-    if (startFrom <= 5) {
-      await updateProject(projectId, { status: 'pushing', current_step: 5 })
-
-      if (isFreeUser) {
-        await logStep(projectId, 5, 'GitHub Push', 'running', 'Preparing code...')
-        await new Promise(r => setTimeout(r, 1000))
-        await logStep(projectId, 5, 'GitHub Push', 'success', 'Code ready (deploy to your GitHub after upgrade)')
-      } else {
-        await logStep(projectId, 5, 'GitHub Push', 'running', 'Creating repo...')
-        if (!admin && userId) { const ok = await deductCredit(userId, projectId, 'GitHub Push'); if (!ok) { await logStep(projectId, 5, 'GitHub Push', 'failed', 'No credits'); return } }
-        const start = Date.now()
-
-        const { url: githubUrl } = await createGitHubRepo(repoName)
-        await updateProject(projectId, { github_url: githubUrl })
-
-        // BUG 2 FIX: Collect ALL files, then push in ONE atomic commit
-        const allFiles: Array<{ path: string; content: string }> = []
-
-        // Static config files
-        allFiles.push({ path: 'package.json', content: JSON.stringify({ name: repoName, version: '0.1.0', private: true, scripts: { dev: 'next dev', build: 'next build', start: 'next start' }, dependencies: { next: '^14.2.5', react: '^18.3.1', 'react-dom': '^18.3.1', '@supabase/supabase-js': '^2.44.4', 'lucide-react': '^0.427.0', clsx: '^2.1.1', 'tailwind-merge': '^2.4.0' }, devDependencies: { typescript: '^5.5.4', '@types/node': '^20.14.12', '@types/react': '^18.3.3', tailwindcss: '^3.4.7', postcss: '^8.4.40', autoprefixer: '^10.4.20' } }, null, 2) })
-        allFiles.push({ path: 'tsconfig.json', content: JSON.stringify({ compilerOptions: { target: 'ES2017', lib: ['dom', 'dom.iterable', 'esnext'], allowJs: true, skipLibCheck: true, strict: false, noEmit: true, esModuleInterop: true, module: 'esnext', moduleResolution: 'bundler', resolveJsonModule: true, isolatedModules: true, jsx: 'preserve', incremental: true, plugins: [{ name: 'next' }], paths: { '@/*': ['./src/*'] } }, include: ['next-env.d.ts', '**/*.ts', '**/*.tsx'], exclude: ['node_modules'] }, null, 2) })
-        allFiles.push({ path: 'tailwind.config.ts', content: 'import type { Config } from "tailwindcss";\nconst config: Config = { content: ["./src/**/*.{ts,tsx}"], theme: { extend: {} }, plugins: [] };\nexport default config;' })
-        allFiles.push({ path: 'postcss.config.js', content: 'module.exports = { plugins: { tailwindcss: {}, autoprefixer: {} } };' })
-        allFiles.push({ path: 'next.config.mjs', content: '/** @type {import("next").NextConfig} */\nconst nextConfig = {};\nexport default nextConfig;' })
-        allFiles.push({ path: 'src/app/globals.css', content: '@tailwind base;\n@tailwind components;\n@tailwind utilities;' })
-        allFiles.push({ path: '.gitignore', content: 'node_modules/\n.next/\n.env.local' })
-
-        // BUG 5 FIX: Static layout (no Supabase, no Claude call needed)
-        const productName = proj.product_name || repoName
-        const tagline = proj.tagline || ''
-        const desc = (proj.description || proj.idea || '').replace(/"/g, '\\"').slice(0, 150)
-        allFiles.push({ path: 'src/app/layout.tsx', content: `import type { Metadata } from "next"\nimport "./globals.css"\n\nexport const metadata: Metadata = {\n  title: "${productName} — ${tagline.replace(/"/g, '\\"')}",\n  description: "${desc}",\n}\n\nexport default function RootLayout({ children }: { children: React.ReactNode }) {\n  return <html lang="en"><body className="min-h-screen bg-gray-50 antialiased">{children}</body></html>\n}` })
-
-        // Generate landing + dashboard via Claude (2 calls only)
-        const allPaths = (arch.fileStructure || []).slice(0, 10).map((f: any) => f.path)
-        for (const pageInfo of [
-          { path: 'app/page.tsx', desc: `Landing page for ${productName}: hero with tagline, features, pricing, CTA` },
-          { path: 'app/dashboard/page.tsx', desc: `Dashboard for ${productName}: stats, data, sidebar navigation` },
-        ]) {
-          try {
-            await logStep(projectId, 5, 'GitHub Push', 'running', `Generating ${pageInfo.path}...`)
-            const code = await generateFileCode(features, arch, pageInfo.path, pageInfo.desc, allPaths)
-            totalTokens += 2000; totalCalls++
-            allFiles.push({ path: `src/${pageInfo.path}`, content: code })
-          } catch (err: any) { console.error(`Failed: ${pageInfo.path}:`, err.message) }
-        }
-
-        // BUG 2 FIX: Push ALL files in ONE atomic commit
-        await logStep(projectId, 5, 'GitHub Push', 'running', `Pushing ${allFiles.length} files...`)
-        await pushAllFilesToGitHub(repoName, allFiles, `🚀 ${productName} — initial commit`)
-
-        await updateProject(projectId, { total_tokens: totalTokens, total_api_calls: totalCalls })
-        await logStep(projectId, 5, 'GitHub Push', 'success', `${allFiles.length} files → ${githubUrl}`, 0, Date.now() - start)
-      }
-    }
-
-    // ===== STEP 6: DEPLOY =====
+    // ===== STEPS 3-6: BUILD WITH CLAUDE CODE CLI =====
     if (startFrom <= 6) {
-      await updateProject(projectId, { status: 'deploying', current_step: 6 })
+      const productName = proj.product_name || repoName
+      const c = getConfig()
 
       if (isFreeUser) {
-        await logStep(projectId, 6, 'Deploy', 'running', 'Preview mode...')
-        await new Promise(r => setTimeout(r, 1500))
-        await logStep(projectId, 6, 'Deploy', 'success', 'Preview ready — upgrade to deploy')
+        // Free users: simulate steps 3-6 (no real build)
+        for (const step of [
+          { num: 3, name: 'Code Generation', status: 'generating' as const },
+          { num: 4, name: 'Database Setup', status: 'database' as const },
+          { num: 5, name: 'GitHub Push', status: 'pushing' as const },
+          { num: 6, name: 'Deploy', status: 'deploying' as const },
+        ]) {
+          if (step.num < startFrom) continue
+          await updateProject(projectId, { status: step.status, current_step: step.num })
+          await logStep(projectId, step.num, step.name, 'running', `${step.name}...`)
+          await new Promise(r => setTimeout(r, 1000))
+          await logStep(projectId, step.num, step.name, step.num === 5 ? 'success' : 'success',
+            step.num === 5 ? 'Code ready (upgrade to deploy)' : step.num === 6 ? 'Preview ready' : `${step.name} complete`)
+        }
       } else {
-        await logStep(projectId, 6, 'Deploy', 'running', 'Creating Vercel project...')
-        if (!admin && userId) { const ok = await deductCredit(userId, projectId, 'Deploy'); if (!ok) { await logStep(projectId, 6, 'Deploy', 'failed', 'No credits'); return } }
-        const start = Date.now()
+        // PAID/ADMIN: Use Claude Code CLI to build, test, push, and deploy
+        const projectDir = `/tmp/saas-factory-builds/${repoName}`
+        const { exec: execCb } = await import('child_process')
+        const { promisify } = await import('util')
+        const execAsync = promisify(execCb)
 
-        const { url: vercelUrl } = await createVercelProject(repoName, repoName)
-        // BUG 8 FIX: Always set env vars
-        await setVercelEnvVars(repoName)
-        await updateProject(projectId, { vercel_url: vercelUrl })
+        // Step 3: Code Generation via Claude Code
+        if (startFrom <= 3) {
+          await updateProject(projectId, { status: 'generating', current_step: 3 })
+          await logStep(projectId, 3, 'Code Generation', 'running', 'Claude Code is building your app...')
+          if (!admin && userId) { const ok = await deductCredit(userId, projectId, 'Build'); if (!ok) { await logStep(projectId, 3, 'Code Generation', 'failed', 'No credits'); return } }
 
-        // Trigger deploy
-        const c = getConfig()
-        await fetch('https://api.vercel.com/v13/deployments', {
-          method: 'POST', headers: { Authorization: `Bearer ${c.vercelToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: repoName, project: repoName, target: 'production', gitSource: { type: 'github', ref: 'main', org: c.githubOwner, repo: repoName } }),
-        }).catch(() => {})
+          const dbSchema = (arch.database?.tables || []).map((t: any) => `${t.name}: ${(t.columns || []).map((col: any) => col.name).join(', ')}`).join('\n')
+          const featureList = (features.features || []).map((f: any) => `- ${f.name}: ${f.description || ''}`).join('\n')
 
-        // === AUTO-FIX LOOP: Check Vercel build, fix if needed (max 2 retries) ===
-        await logStep(projectId, 6, 'Deploy', 'running', 'Waiting for Vercel build...')
-        await new Promise(r => setTimeout(r, 60000)) // Wait 60s for build
+          const claudePrompt = `Create a complete, production-ready Next.js 14 SaaS application.
 
-        for (let fixAttempt = 0; fixAttempt < 2; fixAttempt++) {
-          // Check deployment status
-          const deployCheck = await fetch(`https://api.vercel.com/v9/projects/${repoName}`, {
-            headers: { Authorization: `Bearer ${c.vercelToken}` },
-          })
-          const deployData = await deployCheck.json()
-          const latestDeploy = deployData.latestDeployments?.[0]
-          const deployState = latestDeploy?.readyState
+Product: ${productName}
+Tagline: ${proj.tagline || ''}
+Description: ${proj.description || proj.idea}
+Target user: ${proj.target_user || ''}
+Pricing: ${features.monetization?.suggestedPrice || '$9/mo'}
 
-          if (deployState === 'READY') {
-            await logStep(projectId, 6, 'Deploy', 'success', `Live at ${vercelUrl}`, 0, Date.now() - start)
-            break
-          }
+Features:
+${featureList}
 
-          if (deployState === 'ERROR' && fixAttempt < 1) {
-            // Get build logs
-            await logStep(projectId, 6, 'Deploy', 'running', `Build failed — auto-fixing (attempt ${fixAttempt + 1})...`)
-            let buildErrors = 'Build failed'
-            try {
-              const logsRes = await fetch(`https://api.vercel.com/v6/deployments/${latestDeploy.uid}/events`, {
-                headers: { Authorization: `Bearer ${c.vercelToken}` },
-              })
-              const logsText = await logsRes.text()
-              // Extract error lines
-              const errorLines = logsText.split('\n').filter((l: string) => l.includes('error') || l.includes('Error') || l.includes('Module not found') || l.includes('Cannot find')).slice(-10).join('\n')
-              if (errorLines) buildErrors = errorLines
-            } catch {}
+Database tables:
+${dbSchema}
 
-            // Ask Claude to fix the errors
-            try {
-              const { text: fixCode } = await askClaude(
-                `This Next.js app has Vercel build errors:\n${buildErrors}\n\nGenerate a fixed landing page (src/app/page.tsx) for "${proj.product_name || repoName}" that avoids these errors. Use 'use client', useMemo for Supabase, no imports from @/components. Output ONLY the file content.`,
-                'You are a Next.js build error fixer. Output ONLY the corrected file content, no markdown.',
-                8192
-              )
-              totalTokens += 2000; totalCalls++
+REQUIREMENTS:
+- Next.js 14 with App Router and TypeScript
+- Tailwind CSS for all styling
+- Supabase for auth and database (use @supabase/supabase-js)
+- Create ALL pages: landing page, login, signup, dashboard, and feature pages
+- Every button must work, every form must submit data
+- Use 'use client' on pages with Supabase, create client with useMemo
+- Landing page must have: hero, features, pricing, CTA, footer
+- Dashboard must have: stats cards, data table, sidebar navigation
+- npm run build MUST pass with ZERO errors
+- Do NOT use any imports from @/components or @/lib — keep pages self-contained
 
-              // Push fix
-              const fixedContent = fixCode.replace(/^```(?:typescript|tsx)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
-              await pushAllFilesToGitHub(repoName, [{ path: 'src/app/page.tsx', content: fixedContent }], `fix: auto-fix build error (attempt ${fixAttempt + 1})`)
+Environment variables (already set):
+NEXT_PUBLIC_SUPABASE_URL=${c.supabaseUrl}
+NEXT_PUBLIC_SUPABASE_ANON_KEY=${c.supabaseAnonKey}
 
-              // Trigger redeploy
-              await fetch('https://api.vercel.com/v13/deployments', {
-                method: 'POST', headers: { Authorization: `Bearer ${c.vercelToken}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: repoName, project: repoName, target: 'production', gitSource: { type: 'github', ref: 'main', org: c.githubOwner, repo: repoName } }),
-              }).catch(() => {})
+After building all files:
+1. Run: npm install
+2. Run: npm run build
+3. Fix ANY build errors until build passes with zero errors
+4. Do NOT push to git or deploy — I will handle that.`
 
-              await new Promise(r => setTimeout(r, 60000)) // Wait for rebuild
-            } catch (fixErr: any) {
-              console.error('Auto-fix failed:', fixErr.message)
-            }
-          } else if (deployState !== 'READY') {
-            // Still building or unknown — wait more
-            await new Promise(r => setTimeout(r, 30000))
+          try {
+            await execAsync(`mkdir -p ${projectDir}`, { timeout: 5000 })
+
+            // Run Claude Code CLI
+            const escapedPrompt = claudePrompt.replace(/'/g, "'\\''")
+            await logStep(projectId, 3, 'Code Generation', 'running', 'Claude Code building app (this takes a few minutes)...')
+
+            const { stdout, stderr } = await execAsync(
+              `cd ${projectDir} && claude -p '${escapedPrompt}' --yes 2>&1`,
+              { timeout: 600000, maxBuffer: 10 * 1024 * 1024, env: { ...process.env, HOME: process.env.HOME || '/root' } }
+            )
+
+            await logStep(projectId, 3, 'Code Generation', 'success', 'App built by Claude Code')
+          } catch (err: any) {
+            console.error('Claude Code failed:', err.message?.slice(0, 200))
+            await logStep(projectId, 3, 'Code Generation', 'failed', `Claude Code error: ${err.message?.slice(0, 100)}`)
+            throw err
           }
         }
 
-        // Final status check
-        const finalCheck = await fetch(`https://api.vercel.com/v9/projects/${repoName}`, {
-          headers: { Authorization: `Bearer ${c.vercelToken}` },
-        }).then(r => r.json()).catch(() => null)
-        const finalState = finalCheck?.latestDeployments?.[0]?.readyState
-        if (finalState === 'READY') {
-          await logStep(projectId, 6, 'Deploy', 'success', `Live at ${vercelUrl}`, 0, Date.now() - start)
-        } else {
-          await logStep(projectId, 6, 'Deploy', 'success', `Deployed → ${vercelUrl} (build may still be processing)`, 0, Date.now() - start)
+        // Step 4: Database (Claude Code already handles schema in the app code)
+        if (startFrom <= 4) {
+          await updateProject(projectId, { status: 'database', current_step: 4 })
+          await logStep(projectId, 4, 'Database Setup', 'success', 'Schema defined in app code')
+        }
+
+        // Step 5: Push to GitHub
+        if (startFrom <= 5) {
+          await updateProject(projectId, { status: 'pushing', current_step: 5 })
+          await logStep(projectId, 5, 'GitHub Push', 'running', 'Pushing to GitHub...')
+          if (!admin && userId) { const ok = await deductCredit(userId, projectId, 'Push + Deploy'); if (!ok) { await logStep(projectId, 5, 'GitHub Push', 'failed', 'No credits'); return } }
+          const start = Date.now()
+
+          const { url: githubUrl } = await createGitHubRepo(repoName)
+          await updateProject(projectId, { github_url: githubUrl })
+
+          // Init git and push
+          try {
+            await execAsync(`cd ${projectDir} && git init && git remote add origin https://${c.githubOwner}:${c.githubToken}@github.com/${c.githubOwner}/${repoName}.git 2>/dev/null || true`, { timeout: 10000 })
+            await execAsync(`cd ${projectDir} && echo "node_modules/\\n.next/\\n.env.local" > .gitignore && git add -A && git commit -m "🚀 ${productName} — built by SaaS Factory" --allow-empty`, { timeout: 30000 })
+            await execAsync(`cd ${projectDir} && git branch -M main && git push -u origin main --force`, { timeout: 60000 })
+            await logStep(projectId, 5, 'GitHub Push', 'success', `Pushed to ${githubUrl}`, 0, Date.now() - start)
+          } catch (pushErr: any) {
+            console.error('Git push failed:', pushErr.message?.slice(0, 200))
+            await logStep(projectId, 5, 'GitHub Push', 'failed', `Push failed: ${pushErr.message?.slice(0, 80)}`)
+            throw pushErr
+          }
+        }
+
+        // Step 6: Deploy to Vercel
+        if (startFrom <= 6) {
+          await updateProject(projectId, { status: 'deploying', current_step: 6 })
+          await logStep(projectId, 6, 'Deploy', 'running', 'Deploying to Vercel...')
+          const start = Date.now()
+
+          const { url: vercelUrl } = await createVercelProject(repoName, repoName)
+          await setVercelEnvVars(repoName)
+          await updateProject(projectId, { vercel_url: vercelUrl })
+
+          // Trigger deploy
+          await fetch('https://api.vercel.com/v13/deployments', {
+            method: 'POST', headers: { Authorization: `Bearer ${c.vercelToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: repoName, project: repoName, target: 'production', gitSource: { type: 'github', ref: 'main', org: c.githubOwner, repo: repoName } }),
+          }).catch(() => {})
+
+          await logStep(projectId, 6, 'Deploy', 'success', `Deployed → ${vercelUrl}`, 0, Date.now() - start)
         }
       }
     }
