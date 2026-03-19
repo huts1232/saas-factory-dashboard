@@ -206,37 +206,43 @@ export function LandingPage({ projectCount }: { projectCount: number }) {
       </section>
 
       {/* ===== HOW IT WORKS ===== */}
-      <section className="px-6 py-28 max-w-5xl mx-auto">
-        <motion.div initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }}>
-          <p className="text-accent text-sm font-medium mb-2 text-center">How it works</p>
-          <h2 className="text-3xl md:text-4xl font-bold text-center mb-16">Idea to income in 4 steps</h2>
-        </motion.div>
-        <div className="space-y-12">
-          {STEPS.map((step, i) => (
-            <motion.div key={step.num} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }} transition={{ delay: i * 0.1 }}
-              className="flex gap-6 items-start">
-              <div className="flex-shrink-0 text-center">
-                <div className="text-3xl mb-1">{step.icon}</div>
-                <div className="text-xs font-mono text-accent">{step.num}</div>
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold mb-2">{step.title}</h3>
-                <p className="text-sm text-text-secondary leading-relaxed max-w-lg">{step.desc}</p>
-                {step.services && (
-                  <div className="flex gap-2 mt-3">
-                    {step.services.map((s, j) => (
-                      <motion.span key={s} initial={{ opacity: 0, scale: 0.8 }} whileInView={{ opacity: 1, scale: 1 }}
-                        viewport={{ once: true }} transition={{ delay: 0.5 + j * 0.15 }}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent-green/10 text-accent-green text-[10px] font-medium">
-                        <Check className="h-2.5 w-2.5" /> {s}
-                      </motion.span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          ))}
+      <section className="px-6 py-28">
+        <div className="max-w-5xl mx-auto">
+          <motion.div initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }} className="text-center mb-16">
+            <p className="text-accent text-sm font-medium mb-2">How it works</p>
+            <h2 className="text-3xl md:text-4xl font-bold">Idea to income in 4 steps</h2>
+          </motion.div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {STEPS.map((step, i) => {
+              const gradients = [
+                'from-blue-500/10 to-cyan-500/5',
+                'from-purple-500/10 to-pink-500/5',
+                'from-amber-500/10 to-orange-500/5',
+                'from-green-500/10 to-emerald-500/5',
+              ]
+              return (
+                <motion.div key={step.num} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }} transition={{ delay: i * 0.1 }}
+                  className={`relative rounded-2xl bg-gradient-to-br ${gradients[i]} border border-white/5 p-8 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20 transition-all`}>
+                  <div className="text-xs font-mono text-accent font-bold mb-4">{step.num}</div>
+                  <div className="text-5xl mb-4">{step.icon}</div>
+                  <h3 className="text-xl font-bold mb-3">{step.title}</h3>
+                  <p className="text-sm text-text-secondary leading-relaxed">{step.desc}</p>
+                  {step.services && (
+                    <div className="flex flex-wrap gap-2 mt-4">
+                      {step.services.map((s, j) => (
+                        <motion.span key={s} initial={{ opacity: 0, scale: 0.8 }} whileInView={{ opacity: 1, scale: 1 }}
+                          viewport={{ once: true }} transition={{ delay: 0.5 + j * 0.15 }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent-green/10 text-accent-green text-xs font-medium">
+                          <Check className="h-3 w-3" /> {s}
+                        </motion.span>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              )
+            })}
+          </div>
         </div>
       </section>
 
