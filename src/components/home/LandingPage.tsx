@@ -8,6 +8,7 @@ import {
   Rocket, ChevronDown, Check, X, Send, ArrowRight,
   FileText, BarChart3, CreditCard, Shield, Smartphone, Globe,
 } from 'lucide-react'
+import { ProjectPreviewModal } from './ProjectPreviewModal'
 
 // ===== DATA =====
 
@@ -76,9 +77,9 @@ const FEATURES = [
 ]
 
 const EXAMPLES = [
-  { name: 'StudyGen', tagline: 'AI study tools for students', time: '12 min', price: '$9/mo', features: ['AI Quizzes', 'Flashcards', 'Progress'] },
-  { name: 'InvoiceFlow', tagline: 'Invoicing for freelancers', time: '14 min', price: '$19/mo', features: ['Auto-generate', 'Payments', 'Clients'] },
-  { name: 'TestMark', tagline: 'Bookmark health monitoring', time: '18 min', price: '$5/mo', features: ['URL Monitor', 'Alerts', 'Teams'] },
+  { name: 'StudyGen', tagline: 'AI study tools for students', time: '12 min', price: '$9/mo', features: ['AI Quizzes', 'Flashcards', 'Progress'], url: 'https://studygen-sand.vercel.app', tables: 9, files: 29, routes: 21, idea: 'A study tool where students upload PDFs and AI generates flashcards and quizzes' },
+  { name: 'InvoiceFlow', tagline: 'Invoicing for freelancers', time: '14 min', price: '$19/mo', features: ['Auto-generate', 'Payments', 'Clients'], tables: 6, files: 22, routes: 14, idea: 'An invoice tool for freelancers to create, send, and track invoices' },
+  { name: 'TestMark', tagline: 'Bookmark health monitoring', time: '18 min', price: '$5/mo', features: ['URL Monitor', 'Alerts', 'Teams'], url: 'https://testmark-blush.vercel.app', tables: 5, files: 59, routes: 14, idea: 'A bookmark health monitoring tool that tests URLs and alerts when they break' },
 ]
 
 const PLANS = [
@@ -124,6 +125,7 @@ export function LandingPage({ projectCount }: { projectCount: number }) {
   const { openLoginModal } = useUser()
   const [idea, setIdea] = useState('')
   const [openFaq, setOpenFaq] = useState<number | null>(null)
+  const [previewProject, setPreviewProject] = useState<typeof EXAMPLES[number] | null>(null)
   const [placeholderIdx, setPlaceholderIdx] = useState(0)
   const [displayedPlaceholder, setDisplayedPlaceholder] = useState('')
   const [isTyping, setIsTyping] = useState(true)
@@ -325,11 +327,12 @@ export function LandingPage({ projectCount }: { projectCount: number }) {
         <h2 className="text-3xl md:text-4xl font-bold text-center mb-16">See what builders are creating</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {EXAMPLES.map((ex, i) => (
-            <motion.div key={ex.name} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
+            <motion.button key={ex.name} onClick={() => setPreviewProject(ex)}
+              initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }} transition={{ delay: i * 0.1 }}
-              className="bg-bg-card border border-border-default rounded-2xl p-6 hover:border-border-bright transition-all">
+              className="bg-bg-card border border-border-default rounded-2xl p-6 hover:border-accent/30 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20 transition-all text-left group">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold">{ex.name}</h3>
+                <h3 className="font-semibold group-hover:text-accent transition-colors">{ex.name}</h3>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent-green/10 text-accent-green font-medium">⚡ {ex.time}</span>
               </div>
               <p className="text-sm text-text-secondary mb-4">{ex.tagline}</p>
@@ -339,10 +342,14 @@ export function LandingPage({ projectCount }: { projectCount: number }) {
               <div className="pt-3 border-t border-border-default text-sm">
                 Users pay <span className="text-accent-green font-semibold">{ex.price}</span>
               </div>
-            </motion.div>
+              <p className="text-[10px] text-accent mt-3 opacity-0 group-hover:opacity-100 transition-opacity">Click to preview →</p>
+            </motion.button>
           ))}
         </div>
       </section>
+
+      {/* Preview modal */}
+      <ProjectPreviewModal project={previewProject} open={!!previewProject} onClose={() => setPreviewProject(null)} />
 
       {/* ===== THE MATH ===== */}
       <section className="px-6 py-28">

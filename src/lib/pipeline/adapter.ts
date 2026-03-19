@@ -76,15 +76,35 @@ async function getUserPlan(userId: string | null): Promise<'free' | 'starter' | 
 // ===== REAL DEPLOYMENT HELPERS =====
 
 async function generateFileCode(config: any, features: any, arch: any, filePath: string, fileDesc: string, allPaths: string[]): Promise<string> {
-  const system = `You are a senior Next.js developer. Generate production-ready TypeScript code for a SaaS application. Use Next.js 14 App Router, Tailwind CSS, Supabase, and TypeScript. Output ONLY the file content, no markdown fences.`
-  const prompt = `Generate the code for this file:
-File: ${filePath}
+  const system = `You are a senior Next.js 14 developer building a production SaaS. Rules:
+- Use Next.js 14 App Router, TypeScript, Tailwind CSS
+- Generate COMPLETE, WORKING code — not scaffolding or placeholders
+- Every button must have an onClick that DOES something
+- Every form must have: validation, submit handler, API call, success/error feedback
+- Dashboard pages must query REAL data from Supabase: const { data } = await supabase.from('table').select('*')
+- File upload must use Supabase Storage: supabase.storage.from('bucket').upload(path, file)
+- NEVER use placeholder data, TODO comments, or mock data in production code
+- Include proper loading states, error handling, and empty states
+- Use only these imports: react, next/link, next/navigation, @supabase/supabase-js, lucide-react, tailwind classes
+- Do NOT import from @/components/ui/ or @/lib/ — write everything inline in the file
+- Output ONLY the file content. No markdown fences, no explanation.`
+
+  const dbSchema = arch.database?.tables?.map((t: any) => `${t.name}(${t.columns?.map((c: any) => c.name).join(', ')})`).join('; ') || ''
+
+  const prompt = `Generate code for: ${filePath}
 Description: ${fileDesc}
 Product: ${features.productName} — ${features.tagline}
-Features: ${JSON.stringify(features.features?.slice(0, 5) || [])}
-All project files: ${allPaths.slice(0, 20).join(', ')}
+Target user: ${features.targetUser || 'general'}
+Database tables: ${dbSchema}
+All project files: ${allPaths.slice(0, 15).join(', ')}
+Pricing: ${features.monetization?.suggestedPrice || '$9/mo'}
 
-Output ONLY the complete file content. No explanation, no markdown.`
+IMPORTANT: This file must be SELF-CONTAINED. Import nothing from @/components or @/lib.
+For Supabase client, create it inline:
+  import { createClient } from "@supabase/supabase-js"
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+
+Output ONLY the complete file content.`
   const { text } = await askClaude(prompt, system, 8192)
   return text.replace(/^```(?:typescript|tsx|ts|javascript|jsx)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
 }
@@ -169,10 +189,71 @@ async function triggerVercelDeploy(projectName: string): Promise<string> {
 }
 
 // ===== PROMPTS =====
-const IDEATION_SYSTEM = `You are a senior product manager. Take a rough idea and create a buildable SaaS spec. Be practical. Max 5 features.`
-const IDEATION_PROMPT = (idea: string) => `Turn this into a SaaS spec:\n"${idea}"\n\nJSON: {"productName":"..","tagline":"..","description":"..","targetUser":"..","painPoint":"..","uniqueValue":"..","features":[{"name":"..","description":"..","priority":"mvp|nice-to-have","complexity":"simple|medium|complex"}],"monetization":{"model":"freemium","freeFeatures":[],"paidFeatures":[],"suggestedPrice":"$X/mo"},"userFlows":["Step 1:.."]}`
-const ARCHITECTURE_SYSTEM = `You are a senior architect designing Next.js + Supabase SaaS apps.`
-const ARCHITECTURE_PROMPT = (f: any) => `Design architecture for:\nProduct: ${f.productName}\nDescription: ${f.description}\nFeatures: ${JSON.stringify(f.features)}\n\nJSON: {"database":{"tables":[{"name":"..","description":"..","columns":[{"name":"..","type":"..","nullable":false}]}]},"fileStructure":[{"path":"..","description":".."}],"apiRoutes":[{"path":"..","method":"..","description":".."}],"components":[{"name":"..","description":"..","props":".."}],"envVars":[{"name":"..","description":"..","public":false}]}`
+const IDEATION_SYSTEM = `You are a senior product manager at a SaaS company. Create detailed, buildable specs. Be practical and specific. Max 5 features, but each feature must be described with exact user flows and implementation details.`
+const IDEATION_PROMPT = (idea: string) => `Turn this idea into a detailed SaaS product specification:
+"${idea}"
+
+For EACH feature, describe:
+1. The exact user flow step by step (user clicks X, sees Y, submits Z)
+2. The API calls needed (POST /api/x with body {...})
+3. The database operations (INSERT into table, SELECT with filters)
+
+If a feature involves file upload: specify what happens with the file (stored where, processed how).
+If a feature involves AI: specify what the AI prompt looks like and what it returns.
+Every feature must be FULLY IMPLEMENTABLE — no vague descriptions.
+
+JSON response:
+{
+  "productName": "catchy 2-3 word name",
+  "tagline": "one-line value proposition",
+  "description": "2-3 sentence elevator pitch",
+  "targetUser": "specific person (e.g. 'freelance designers who invoice clients weekly')",
+  "painPoint": "specific problem they have today",
+  "uniqueValue": "why this is better than alternatives",
+  "features": [
+    {
+      "name": "Feature name",
+      "description": "What it does in detail",
+      "userFlow": "Step 1: user does X. Step 2: system does Y. Step 3: user sees Z.",
+      "apiCalls": ["POST /api/x - creates record", "GET /api/x - lists records"],
+      "priority": "mvp | nice-to-have",
+      "complexity": "simple | medium | complex"
+    }
+  ],
+  "monetization": {
+    "model": "freemium",
+    "freeFeatures": ["list"],
+    "paidFeatures": ["list"],
+    "suggestedPrice": "$X/mo"
+  },
+  "userFlows": ["Step 1: Sign up with email", "Step 2: ...", "Step 3: ..."],
+  "thirdPartyPackages": ["package-name — what it's used for"]
+}`
+const ARCHITECTURE_SYSTEM = `You are a senior architect designing production Next.js 14 + Supabase SaaS applications. Every API route must have a complete implementation spec. Every table must have proper columns with types. Be thorough.`
+const ARCHITECTURE_PROMPT = (f: any) => `Design the complete technical architecture for:
+Product: ${f.productName}
+Description: ${f.description}
+Target: ${f.targetUser}
+Features: ${JSON.stringify(f.features)}
+${f.thirdPartyPackages ? 'Required packages: ' + JSON.stringify(f.thirdPartyPackages) : ''}
+
+For each API route, describe: input validation, database query, response format, error cases.
+For file uploads: specify Supabase Storage bucket name and upload policy.
+For AI features: specify the Claude API prompt to use.
+Include Supabase auth setup (users table is auto-created by Supabase Auth).
+
+JSON:
+{
+  "database": {
+    "tables": [{"name": "string", "description": "string", "columns": [{"name": "string", "type": "string (uuid/text/integer/boolean/timestamptz/jsonb)", "nullable": false, "default": "optional default"}]}],
+    "storageBuckets": [{"name": "string", "public": false}]
+  },
+  "fileStructure": [{"path": "app/page.tsx or similar", "description": "detailed description of what this file does"}],
+  "apiRoutes": [{"path": "/api/...", "method": "GET|POST|PUT|DELETE", "description": "what it does", "implementation": "brief pseudocode"}],
+  "components": [{"name": "string", "description": "string", "props": "string"}],
+  "envVars": [{"name": "string", "description": "string", "public": false}],
+  "packages": ["package-name"]
+}`
 
 // ===== MAIN PIPELINE =====
 export interface PipelineOptions {
