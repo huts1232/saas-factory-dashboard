@@ -1,7 +1,9 @@
 import { createServiceClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
+import { runPipeline } from '@/lib/pipeline/adapter'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 300
 
 export async function POST(
   _req: Request,
@@ -10,7 +12,6 @@ export async function POST(
   const { id } = await params
   const supabase = createServiceClient()
 
-  // Get current project state
   const { data: project, error } = await supabase
     .from('factory_projects')
     .select('*')
@@ -21,22 +22,26 @@ export async function POST(
     return NextResponse.json({ error: 'Project not found' }, { status: 404 })
   }
 
-  // Reset status for retry
+  // Reset status
   await supabase
     .from('factory_projects')
     .update({ status: 'pending', errors: [] })
     .eq('id', id)
 
-  // Start pipeline
-  const baseUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : 'http://localhost:3000'
+  // Delete old logs so pipeline creates fresh ones
+  await supabase
+    .from('build_logs')
+    .delete()
+    .eq('project_id', id)
 
-  fetch(`${baseUrl}/api/pipeline/run`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectId: id }),
-  }).catch(console.error)
+  // Run pipeline in background using after()
+  after(async () => {
+    try {
+      await runPipeline(id)
+    } catch (err) {
+      console.error('Pipeline retry error:', err)
+    }
+  })
 
   return NextResponse.json({ retrying: true })
 }
