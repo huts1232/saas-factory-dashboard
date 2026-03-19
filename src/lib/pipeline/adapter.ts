@@ -377,14 +377,20 @@ After building all files:
           try {
             await execAsync(`mkdir -p ${projectDir}`, { timeout: 5000 })
 
-            // Run Claude Code CLI
-            const escapedPrompt = claudePrompt.replace(/'/g, "'\\''")
+            // Write prompt to file (avoids shell escaping issues)
+            const fs = await import('fs')
+            const promptFile = `${projectDir}/.claude-prompt.txt`
+            fs.writeFileSync(promptFile, claudePrompt)
+
             await logStep(projectId, 3, 'Code Generation', 'running', 'Claude Code building app (this takes a few minutes)...')
 
-            const { stdout, stderr } = await execAsync(
-              `cd ${projectDir} && claude -p '${escapedPrompt}' --yes 2>&1`,
+            const { stdout } = await execAsync(
+              `cd ${projectDir} && cat .claude-prompt.txt | claude -p - --dangerously-skip-permissions 2>&1`,
               { timeout: 600000, maxBuffer: 10 * 1024 * 1024, env: { ...process.env, HOME: process.env.HOME || '/root' } }
             )
+
+            // Clean up prompt file
+            try { fs.unlinkSync(promptFile) } catch {}
 
             await logStep(projectId, 3, 'Code Generation', 'success', 'App built by Claude Code')
           } catch (err: any) {
