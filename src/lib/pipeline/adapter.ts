@@ -127,25 +127,57 @@ async function createGitHubRepo(repoName: string): Promise<{ url: string; cloneU
   return { url: data.html_url, cloneUrl: data.clone_url }
 }
 
-async function pushFileToGitHub(repoName: string, filePath: string, content: string, message: string): Promise<void> {
+// Push ALL files in a single atomic commit using GitHub Trees API
+async function pushAllFilesToGitHub(repoName: string, files: Array<{ path: string; content: string }>, message: string): Promise<void> {
   const c = getConfig()
-  const url = `https://api.github.com/repos/${c.githubOwner}/${repoName}/contents/${filePath}`
-  // Check if file exists
-  const existing = await fetch(url, { headers: { Authorization: `token ${c.githubToken}` } })
-  let sha: string | undefined
-  if (existing.ok) {
-    const data = await existing.json()
-    sha = data.sha
+  const headers = { Authorization: `token ${c.githubToken}`, 'Content-Type': 'application/json' }
+  const base = `https://api.github.com/repos/${c.githubOwner}/${repoName}`
+
+  // 1. Get the latest commit SHA on main
+  const refRes = await fetch(`${base}/git/ref/heads/main`, { headers })
+  if (!refRes.ok) throw new Error(`Failed to get ref: ${await refRes.text()}`)
+  const refData = await refRes.json()
+  const latestCommitSha = refData.object.sha
+
+  // 2. Get the tree SHA of that commit
+  const commitRes = await fetch(`${base}/git/commits/${latestCommitSha}`, { headers })
+  const commitData = await commitRes.json()
+  const baseTreeSha = commitData.tree.sha
+
+  // 3. Create blobs for each file
+  const tree: Array<{ path: string; mode: string; type: string; sha: string }> = []
+  for (const file of files) {
+    const blobRes = await fetch(`${base}/git/blobs`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ content: Buffer.from(file.content).toString('base64'), encoding: 'base64' }),
+    })
+    if (!blobRes.ok) { console.error(`Blob failed for ${file.path}`); continue }
+    const blob = await blobRes.json()
+    tree.push({ path: file.path, mode: '100644', type: 'blob', sha: blob.sha })
   }
-  const res = await fetch(url, {
-    method: 'PUT',
-    headers: { Authorization: `token ${c.githubToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, content: Buffer.from(content).toString('base64'), ...(sha ? { sha } : {}) }),
+
+  // 4. Create a new tree with all files
+  const treeRes = await fetch(`${base}/git/trees`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ base_tree: baseTreeSha, tree }),
   })
-  if (!res.ok) {
-    const err = await res.text()
-    console.error(`Failed to push ${filePath}:`, err)
-  }
+  if (!treeRes.ok) throw new Error(`Failed to create tree: ${await treeRes.text()}`)
+  const newTree = await treeRes.json()
+
+  // 5. Create a commit pointing to the new tree
+  const newCommitRes = await fetch(`${base}/git/commits`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ message, tree: newTree.sha, parents: [latestCommitSha] }),
+  })
+  if (!newCommitRes.ok) throw new Error(`Failed to create commit: ${await newCommitRes.text()}`)
+  const newCommit = await newCommitRes.json()
+
+  // 6. Update main ref to point to the new commit
+  const updateRes = await fetch(`${base}/git/refs/heads/main`, {
+    method: 'PATCH', headers,
+    body: JSON.stringify({ sha: newCommit.sha }),
+  })
+  if (!updateRes.ok) throw new Error(`Failed to update ref: ${await updateRes.text()}`)
 }
 
 async function createVercelProject(projectName: string, repoName: string): Promise<{ projectId: string; url: string }> {
@@ -322,9 +354,11 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
     const features = proj.features
     const arch = proj.architecture
     if (!features || !arch) throw new Error('Missing features or architecture')
-    // Use existing GitHub repo name if available (for resume/retry), otherwise create new slug
+    // Slug from PRODUCT NAME (not idea) — recompute from fresh data
+    const productSlug = (proj.product_name || proj.slug || 'app').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
+    // Use existing GitHub repo name if available (for resume/retry)
     const existingRepo = proj.github_url ? proj.github_url.split('/').pop() : null
-    const repoName = existingRepo || (isFreeUser ? `preview-${slug}` : slug)
+    const repoName = existingRepo || (isFreeUser ? `preview-${productSlug}` : productSlug)
 
     // ===== STEP 3: CODE GENERATION =====
     if (startFrom <= 3) {
@@ -352,64 +386,59 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
         await new Promise(r => setTimeout(r, 1000))
         await logStep(projectId, 5, 'GitHub Push', 'success', 'Code ready (deploy to your GitHub after upgrade)')
       } else {
-      await logStep(projectId, 5, 'GitHub Push', 'running', 'Creating repo and pushing code...')
+      // PAID USERS: Create repo + generate code + push ALL files in ONE atomic commit
+      await logStep(projectId, 5, 'GitHub Push', 'running', 'Creating repo...')
       if (!admin && userId) { const ok = await deductCredit(userId, projectId, 'GitHub Push'); if (!ok) { await logStep(projectId, 5, 'GitHub Push', 'failed', 'No credits'); return } }
       const start = Date.now()
 
       const { url: githubUrl } = await createGitHubRepo(repoName)
       await updateProject(projectId, { github_url: githubUrl })
+      await logStep(projectId, 5, 'GitHub Push', 'running', 'Generating code...')
 
-      // Push base files
-      const pkgJson = JSON.stringify({
+      // Collect ALL files in memory first
+      const allFilesForPush: Array<{ path: string; content: string }> = []
+
+      // Base config files
+      allFilesForPush.push({ path: 'package.json', content: JSON.stringify({
         name: repoName, version: '0.1.0', private: true,
         scripts: { dev: 'next dev', build: 'next build', start: 'next start' },
-        dependencies: {
-          next: '^14.2.5', react: '^18.3.1', 'react-dom': '^18.3.1',
-          '@supabase/supabase-js': '^2.44.4', '@supabase/ssr': '^0.4.0',
-          'lucide-react': '^0.427.0', 'class-variance-authority': '^0.7.0',
-          clsx: '^2.1.1', 'tailwind-merge': '^2.4.0',
-        },
-        devDependencies: {
-          typescript: '^5.5.4', '@types/node': '^20.14.12', '@types/react': '^18.3.3',
-          tailwindcss: '^3.4.7', postcss: '^8.4.40', autoprefixer: '^10.4.20',
-        },
-      }, null, 2)
+        dependencies: { next: '^14.2.5', react: '^18.3.1', 'react-dom': '^18.3.1', '@supabase/supabase-js': '^2.44.4', '@supabase/ssr': '^0.4.0', 'lucide-react': '^0.427.0', 'class-variance-authority': '^0.7.0', clsx: '^2.1.1', 'tailwind-merge': '^2.4.0' },
+        devDependencies: { typescript: '^5.5.4', '@types/node': '^20.14.12', '@types/react': '^18.3.3', tailwindcss: '^3.4.7', postcss: '^8.4.40', autoprefixer: '^10.4.20' },
+      }, null, 2) })
+      allFilesForPush.push({ path: 'tsconfig.json', content: JSON.stringify({ compilerOptions: { target: 'ES2017', lib: ['dom', 'dom.iterable', 'esnext'], allowJs: true, skipLibCheck: true, strict: true, noEmit: true, esModuleInterop: true, module: 'esnext', moduleResolution: 'bundler', resolveJsonModule: true, isolatedModules: true, jsx: 'preserve', incremental: true, plugins: [{ name: 'next' }], paths: { '@/*': ['./src/*'] } }, include: ['next-env.d.ts', '**/*.ts', '**/*.tsx'], exclude: ['node_modules'] }, null, 2) })
+      allFilesForPush.push({ path: 'tailwind.config.ts', content: 'import type { Config } from "tailwindcss";\nconst config: Config = { content: ["./src/**/*.{ts,tsx}"], theme: { extend: {} }, plugins: [] };\nexport default config;' })
+      allFilesForPush.push({ path: 'postcss.config.js', content: 'module.exports = { plugins: { tailwindcss: {}, autoprefixer: {} } };' })
+      allFilesForPush.push({ path: 'next.config.mjs', content: '/** @type {import("next").NextConfig} */\nconst nextConfig = {};\nexport default nextConfig;' })
+      allFilesForPush.push({ path: 'src/app/globals.css', content: '@tailwind base;\n@tailwind components;\n@tailwind utilities;' })
 
-      await pushFileToGitHub(repoName, 'package.json', pkgJson, 'Initial setup')
-      await pushFileToGitHub(repoName, 'tsconfig.json', JSON.stringify({
-        compilerOptions: { target: 'ES2017', lib: ['dom', 'dom.iterable', 'esnext'], allowJs: true, skipLibCheck: true, strict: true, noEmit: true, esModuleInterop: true, module: 'esnext', moduleResolution: 'bundler', resolveJsonModule: true, isolatedModules: true, jsx: 'preserve', incremental: true, plugins: [{ name: 'next' }], paths: { '@/*': ['./src/*'] } },
-        include: ['next-env.d.ts', '**/*.ts', '**/*.tsx'], exclude: ['node_modules'],
-      }, null, 2), 'Add tsconfig')
-      await pushFileToGitHub(repoName, 'tailwind.config.ts', `import type { Config } from "tailwindcss";\nconst config: Config = { content: ["./src/**/*.{ts,tsx}"], theme: { extend: {} }, plugins: [] };\nexport default config;`, 'Add tailwind config')
-      await pushFileToGitHub(repoName, 'postcss.config.js', `module.exports = { plugins: { tailwindcss: {}, autoprefixer: {} } };`, 'Add postcss')
-      await pushFileToGitHub(repoName, 'next.config.mjs', `/** @type {import('next').NextConfig} */\nconst nextConfig = {};\nexport default nextConfig;`, 'Add next config')
-      await pushFileToGitHub(repoName, 'src/app/globals.css', `@tailwind base;\n@tailwind components;\n@tailwind utilities;`, 'Add globals')
-
-      // Generate key pages only (6 max to stay within 300s Vercel timeout)
-      // Priority: landing page, layout, dashboard, + 3 most important feature pages
-      const allFiles = arch.fileStructure || []
+      // Generate key pages (6 max for timeout)
+      const archFiles = arch.fileStructure || []
       const keyFiles = [
-        allFiles.find((f: any) => f.path.includes('page.tsx') && !f.path.includes('/') || f.path === 'app/page.tsx'),
-        allFiles.find((f: any) => f.path.includes('layout.tsx')),
-        allFiles.find((f: any) => f.path.includes('dashboard')),
-        ...allFiles.filter((f: any) => f.path.includes('page.tsx') && !f.path.includes('layout')).slice(0, 3),
+        archFiles.find((f: any) => f.path === 'app/page.tsx' || (f.path.includes('page.tsx') && f.path.split('/').length <= 2)),
+        archFiles.find((f: any) => f.path.includes('layout.tsx')),
+        archFiles.find((f: any) => f.path.includes('dashboard') && f.path.includes('page.tsx')),
+        ...archFiles.filter((f: any) => f.path.includes('page.tsx') && !f.path.includes('layout') && !f.path.includes('dashboard')).slice(0, 3),
       ].filter(Boolean).slice(0, 6)
       const allPaths = keyFiles.map((f: any) => f.path)
 
       for (const file of keyFiles) {
-        const path = file.path.startsWith('src/') ? file.path : `src/${file.path}`
         try {
+          await logStep(projectId, 5, 'GitHub Push', 'running', `Generating ${file.path}...`)
           const code = await generateFileCode(getConfig(), features, arch, file.path, file.description, allPaths)
           totalTokens += 2000; totalCalls++
-          await pushFileToGitHub(repoName, path, code, `Add ${file.path}`)
-          await logStep(projectId, 5, 'GitHub Push', 'running', `Pushed ${file.path}`)
+          const path = file.path.startsWith('src/') ? file.path : `src/${file.path}`
+          allFilesForPush.push({ path, content: code })
         } catch (err: any) {
           console.error(`Failed to generate ${file.path}:`, err.message)
         }
       }
 
+      // Push ALL files in ONE atomic commit
+      await logStep(projectId, 5, 'GitHub Push', 'running', `Pushing ${allFilesForPush.length} files...`)
+      await pushAllFilesToGitHub(repoName, allFilesForPush, `🚀 Initial commit — ${proj.product_name || repoName}`)
+
       await updateProject(projectId, { total_tokens: totalTokens, total_api_calls: totalCalls })
-      await logStep(projectId, 5, 'GitHub Push', 'success', `Pushed to ${githubUrl}`, 0, Date.now() - start)
+      await logStep(projectId, 5, 'GitHub Push', 'success', `${allFilesForPush.length} files pushed to ${githubUrl}`, 0, Date.now() - start)
       } // end else (paid users GitHub push)
     }
 
@@ -472,10 +501,11 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
       }
     }
 
-    // Final status
+    // Final status — only 'live' if vercel_url actually exists
     const { data: final } = await db.from('factory_projects').select('vercel_url, github_url').eq('id', projectId).single()
+    const finalStatus = isFreeUser ? 'preview' : (final?.vercel_url ? 'live' : 'failed')
     await updateProject(projectId, {
-      status: isFreeUser ? 'preview' : 'live',
+      status: finalStatus,
       current_step: 11,
       total_tokens: totalTokens, total_api_calls: totalCalls,
       vercel_url: final?.vercel_url, github_url: final?.github_url,
