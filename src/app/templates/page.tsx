@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { useUser } from '@/lib/auth-context'
 
 const CATEGORIES = ['All', 'Business', 'AI', 'Finance', 'Service', 'Data', 'Social', 'Productivity']
 
@@ -22,6 +23,7 @@ const TEMPLATES = [
 
 export default function TemplatesPage() {
   const router = useRouter()
+  const { user, openLoginModal } = useUser()
   const [category, setCategory] = useState('All')
   const [search, setSearch] = useState('')
 
@@ -50,7 +52,10 @@ export default function TemplatesPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filtered.map((t, i) => (
-          <motion.button key={t.id} onClick={() => router.push(`/new?idea=${encodeURIComponent(t.idea)}&template=${t.id}`)}
+          <motion.button key={t.id} onClick={() => {
+              if (!user) { openLoginModal(t.idea); return }
+              router.push(`/new?idea=${encodeURIComponent(t.idea)}&template=${t.id}`)
+            }}
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
             className="bg-bg-card border border-border-default rounded-xl p-5 text-left hover:border-border-bright hover:-translate-y-0.5 transition-all group">
             <div className="text-3xl mb-3">{t.icon}</div>

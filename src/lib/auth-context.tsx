@@ -1,82 +1,120 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
 
-interface UserProfile {
+interface AuthState {
   user: User | null
   plan: 'free' | 'starter' | 'pro'
   credits: number
+  isAdmin: boolean
   loading: boolean
+  showLoginModal: boolean
+  pendingIdea: string | null
+  openLoginModal: (idea?: string) => void
+  closeLoginModal: () => void
 }
 
-const AuthContext = createContext<UserProfile>({
+const AuthContext = createContext<AuthState>({
   user: null,
   plan: 'free',
   credits: 0,
+  isAdmin: false,
   loading: true,
+  showLoginModal: false,
+  pendingIdea: null,
+  openLoginModal: () => {},
+  closeLoginModal: () => {},
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<UserProfile>({
-    user: null,
-    plan: 'free',
-    credits: 0,
-    loading: true,
-  })
+  const [user, setUser] = useState<User | null>(null)
+  const [plan, setPlan] = useState<'free' | 'starter' | 'pro'>('free')
+  const [credits, setCredits] = useState(0)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [showLoginModal, setShowLoginModal] = useState(false)
+  const [pendingIdea, setPendingIdea] = useState<string | null>(null)
+
   const supabase = createClient()
 
-  useEffect(() => {
-    async function load() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        setState({ user: null, plan: 'free', credits: 0, loading: false })
-        return
-      }
-
-      const [subRes, credRes] = await Promise.all([
-        supabase.from('subscriptions').select('plan').eq('user_id', user.id).single(),
-        supabase.rpc('get_credit_balance', { p_user_id: user.id }),
-      ])
-
-      setState({
-        user,
-        plan: (subRes.data?.plan as any) || 'free',
-        credits: credRes.data ?? 0,
-        loading: false,
-      })
+  const load = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      setUser(null)
+      setPlan('free')
+      setCredits(0)
+      setIsAdmin(false)
+      setLoading(false)
+      return
     }
-    load()
 
+    setUser(user)
+
+    const [subRes, credRes, adminRes] = await Promise.all([
+      supabase.from('subscriptions').select('plan').eq('user_id', user.id).single(),
+      supabase.rpc('get_credit_balance', { p_user_id: user.id }),
+      supabase.from('admin_users').select('id').eq('email', user.email!).single(),
+    ])
+
+    setPlan((subRes.data?.plan as any) || 'free')
+    setCredits(credRes.data ?? 0)
+    setIsAdmin(!!adminRes.data)
+    setLoading(false)
+  }, [supabase])
+
+  useEffect(() => {
+    load()
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         load()
+        setShowLoginModal(false)
       } else {
-        setState({ user: null, plan: 'free', credits: 0, loading: false })
+        setUser(null)
+        setPlan('free')
+        setCredits(0)
+        setIsAdmin(false)
       }
     })
     return () => subscription.unsubscribe()
-  }, [])
+  }, [load, supabase])
 
-  // Listen for credit changes
+  // Credit realtime
   useEffect(() => {
-    if (!state.user) return
+    if (!user) return
     const channel = supabase
-      .channel('credits')
+      .channel('credits-live')
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
         table: 'credits',
-        filter: `user_id=eq.${state.user.id}`,
+        filter: `user_id=eq.${user.id}`,
       }, (payload: any) => {
-        setState(s => ({ ...s, credits: payload.new.balance_after }))
+        setCredits(payload.new.balance_after)
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [state.user?.id])
+  }, [user?.id, supabase])
 
-  return <AuthContext.Provider value={state}>{children}</AuthContext.Provider>
+  const openLoginModal = useCallback((idea?: string) => {
+    if (idea) setPendingIdea(idea)
+    setShowLoginModal(true)
+  }, [])
+
+  const closeLoginModal = useCallback(() => {
+    setShowLoginModal(false)
+  }, [])
+
+  return (
+    <AuthContext.Provider value={{
+      user, plan, credits, isAdmin, loading,
+      showLoginModal, pendingIdea,
+      openLoginModal, closeLoginModal,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  )
 }
 
 export function useUser() {

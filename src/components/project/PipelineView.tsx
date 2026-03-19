@@ -5,7 +5,7 @@ import { STEP_NAMES } from '@/lib/utils'
 import {
   Lightbulb, Cpu, Code, Database, Github, Rocket,
   Globe, Search, Bug, FileText, LayoutDashboard,
-  CheckCircle2, XCircle, Loader2, Circle, RotateCcw,
+  CheckCircle2, XCircle, Loader2, Circle, RotateCcw, Lock,
 } from 'lucide-react'
 
 const STEP_ICONS: Record<number, React.ElementType> = {
@@ -37,13 +37,15 @@ interface PipelineViewProps {
   status: string
   logs: BuildLog[]
   onRetry?: (step: number) => void
+  isFree?: boolean
 }
 
-export function PipelineView({ currentStep, status, logs, onRetry }: PipelineViewProps) {
+export function PipelineView({ currentStep, status, logs, onRetry, isFree }: PipelineViewProps) {
   const logMap = new Map<number, BuildLog>()
   logs.forEach((l) => logMap.set(l.step_number, l))
 
-  function getStepStatus(step: number): 'pending' | 'running' | 'success' | 'failed' | 'skipped' {
+  function getStepStatus(step: number): 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'locked' {
+    if (isFree && step > 2) return 'locked' as any
     const log = logMap.get(step)
     if (log) return log.status as any
     if (step === currentStep && !['live', 'failed', 'pending'].includes(status)) return 'running'
@@ -78,8 +80,11 @@ export function PipelineView({ currentStep, status, logs, onRetry }: PipelineVie
               stepStatus === 'running' && 'bg-accent/10 text-accent',
               stepStatus === 'failed' && 'bg-accent-pink/10 text-accent-pink',
               stepStatus === 'pending' && 'bg-bg-elevated text-text-muted',
+              stepStatus === 'locked' && 'bg-bg-elevated text-text-muted opacity-50',
             )}>
-              {stepStatus === 'running' ? (
+              {stepStatus === 'locked' ? (
+                <Lock className="h-3.5 w-3.5" />
+              ) : stepStatus === 'running' ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : stepStatus === 'success' ? (
                 <CheckCircle2 className="h-3.5 w-3.5" />
@@ -99,6 +104,7 @@ export function PipelineView({ currentStep, status, logs, onRetry }: PipelineVie
                   stepStatus === 'running' && 'text-accent',
                   stepStatus === 'failed' && 'text-accent-pink',
                   stepStatus === 'pending' && 'text-text-muted',
+                  stepStatus === 'locked' && 'text-text-muted opacity-50',
                 )}>
                   {STEP_NAMES[step]}
                 </span>

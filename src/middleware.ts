@@ -1,20 +1,16 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-const PUBLIC_PATHS = ['/', '/login', '/signup', '/pricing', '/terms', '/privacy', '/api/webhooks']
+// These paths require authentication — redirect to /login if not authed
+const PROTECTED_API = ['/api/connectors', '/api/credits', '/api/subscription']
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Allow public paths and static assets
-  if (
-    PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/')) ||
-    pathname.startsWith('/_next') ||
-    pathname.startsWith('/api/auth') ||
-    pathname.includes('.')
-  ) {
-    return NextResponse.next()
-  }
+  // Only protect specific API routes that need auth
+  // Pages use client-side login modal instead of redirect
+  const isProtectedApi = PROTECTED_API.some(p => pathname.startsWith(p))
+  if (!isProtectedApi) return NextResponse.next()
 
   let response = NextResponse.next({ request })
 
@@ -23,15 +19,11 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
+        getAll() { return request.cookies.getAll() },
         setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           response = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          )
+          cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options))
         },
       },
     }
@@ -40,14 +32,12 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) {
-    const loginUrl = new URL('/login', request.url)
-    loginUrl.searchParams.set('redirect', pathname)
-    return NextResponse.redirect(loginUrl)
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   return response
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  matcher: ['/api/connectors/:path*', '/api/credits/:path*', '/api/subscription/:path*'],
 }
