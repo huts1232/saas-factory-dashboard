@@ -374,22 +374,27 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
       await pushFileToGitHub(repoName, 'next.config.mjs', `/** @type {import('next').NextConfig} */\nconst nextConfig = {};\nexport default nextConfig;`, 'Add next config')
       await pushFileToGitHub(repoName, 'src/app/globals.css', `@tailwind base;\n@tailwind components;\n@tailwind utilities;`, 'Add globals')
 
-      // Generate and push key app files (landing, layout, dashboard)
-      const filesToGenerate = (arch.fileStructure || []).slice(0, 12) // Limit to keep within rate limits
-      const allPaths = filesToGenerate.map((f: any) => f.path)
+      // Generate key pages only (6 max to stay within 300s Vercel timeout)
+      // Priority: landing page, layout, dashboard, + 3 most important feature pages
+      const allFiles = arch.fileStructure || []
+      const keyFiles = [
+        allFiles.find((f: any) => f.path.includes('page.tsx') && !f.path.includes('/') || f.path === 'app/page.tsx'),
+        allFiles.find((f: any) => f.path.includes('layout.tsx')),
+        allFiles.find((f: any) => f.path.includes('dashboard')),
+        ...allFiles.filter((f: any) => f.path.includes('page.tsx') && !f.path.includes('layout')).slice(0, 3),
+      ].filter(Boolean).slice(0, 6)
+      const allPaths = keyFiles.map((f: any) => f.path)
 
-      for (const file of filesToGenerate) {
+      for (const file of keyFiles) {
         const path = file.path.startsWith('src/') ? file.path : `src/${file.path}`
         try {
           const code = await generateFileCode(getConfig(), features, arch, file.path, file.description, allPaths)
-          totalTokens += 2000; totalCalls++ // Approximate
+          totalTokens += 2000; totalCalls++
           await pushFileToGitHub(repoName, path, code, `Add ${file.path}`)
           await logStep(projectId, 5, 'GitHub Push', 'running', `Pushed ${file.path}`)
         } catch (err: any) {
           console.error(`Failed to generate ${file.path}:`, err.message)
         }
-        // Rate limit protection
-        await new Promise(r => setTimeout(r, 1000))
       }
 
       await updateProject(projectId, { total_tokens: totalTokens, total_api_calls: totalCalls })
