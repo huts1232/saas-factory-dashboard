@@ -11,7 +11,7 @@ import { PreviewTab } from '@/components/project/PreviewTab'
 import { ChatBar } from '@/components/project/ChatBar'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { GlowButton } from '@/components/ui/GlowButton'
-import { Loader2, Rocket, ExternalLink, Github } from 'lucide-react'
+import { Loader2, Rocket, ExternalLink, Github, Play, Trash2 } from 'lucide-react'
 import Link from 'next/link'
 
 export default function ProjectPage() {
@@ -22,6 +22,9 @@ export default function ProjectPage() {
   const [logs, setLogs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'overview' | 'preview' | 'logs'>('overview')
+  const [deploying, setDeploying] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const supabase = createClient()
 
   const loadProject = useCallback(async () => {
@@ -54,12 +57,27 @@ export default function ProjectPage() {
     return () => { supabase.removeChannel(channel) }
   }, [id, supabase])
 
+  async function handleContinueBuild() {
+    setDeploying(true)
+    const startFrom = (project.current_step || 0) + 1
+    await fetch(`/api/projects/${id}/retry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isAdmin: true, startFromStep: startFrom }),
+    })
+    // Don't set deploying=false — the realtime updates will show progress
+  }
+
   async function handleRetry() {
-    await fetch(`/api/projects/${id}/retry`, { method: 'POST' })
+    await fetch(`/api/projects/${id}/retry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isAdmin }),
+    })
   }
 
   async function handleDelete() {
-    if (!confirm('Project verwijderen?')) return
+    setDeleting(true)
     await fetch(`/api/projects/${id}`, { method: 'DELETE' })
     router.push('/dashboard')
   }
@@ -70,27 +88,66 @@ export default function ProjectPage() {
   const isFree = plan === 'free' && !isAdmin
   const isPreview = isFree && project.current_step <= 2 && project.status === 'pending'
   const hasArchitecture = !!project.architecture
+  const isPending = project.status === 'pending' && project.current_step >= 1
+  const isBuilding = !['live', 'failed', 'pending'].includes(project.status)
 
   return (
     <div className="p-8 pb-28">
-      <ProjectHeader project={project} onRetry={handleRetry} onDelete={handleDelete} />
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <ProjectHeader project={project} onRetry={handleRetry} onDelete={() => setShowDeleteConfirm(true)} />
+      </div>
 
-      {project.status === 'live' && (project.vercel_url || project.github_url) && (
-        <div className="flex gap-3 mt-4">
-          {project.vercel_url && (
-            <a href={project.vercel_url} target="_blank" rel="noopener noreferrer">
-              <GlowButton variant="green" size="sm">
-                <ExternalLink className="h-3.5 w-3.5" /> Open Live Site
-              </GlowButton>
-            </a>
-          )}
-          {project.github_url && (
-            <a href={project.github_url} target="_blank" rel="noopener noreferrer">
-              <GlowButton variant="ghost" size="sm">
-                <Github className="h-3.5 w-3.5" /> View on GitHub
-              </GlowButton>
-            </a>
-          )}
+      {/* Action buttons */}
+      <div className="flex flex-wrap gap-3 mt-4">
+        {/* Live site buttons */}
+        {project.vercel_url && (
+          <a href={project.vercel_url} target="_blank" rel="noopener noreferrer">
+            <GlowButton variant="green" size="sm"><ExternalLink className="h-3.5 w-3.5" /> Open Live Site</GlowButton>
+          </a>
+        )}
+        {project.github_url && (
+          <a href={project.github_url} target="_blank" rel="noopener noreferrer">
+            <GlowButton variant="ghost" size="sm"><Github className="h-3.5 w-3.5" /> GitHub</GlowButton>
+          </a>
+        )}
+
+        {/* Admin: Continue Build button for pending/failed projects */}
+        {isAdmin && isPending && !isBuilding && (
+          <GlowButton variant="accent" size="sm" onClick={handleContinueBuild} loading={deploying}>
+            <Play className="h-3.5 w-3.5" /> Continue Build (step {(project.current_step || 0) + 1})
+          </GlowButton>
+        )}
+        {isAdmin && project.status === 'failed' && (
+          <GlowButton variant="accent" size="sm" onClick={handleRetry}>
+            <Play className="h-3.5 w-3.5" /> Retry from start
+          </GlowButton>
+        )}
+
+        {/* Delete */}
+        <GlowButton variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(true)}>
+          <Trash2 className="h-3.5 w-3.5" />
+        </GlowButton>
+      </div>
+
+      {/* Delete confirmation modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="bg-bg-secondary border border-border-default rounded-xl p-6 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold mb-2">Project verwijderen?</h3>
+            <p className="text-sm text-text-secondary mb-1">
+              <strong>{project.product_name || project.name}</strong> wordt permanent verwijderd.
+            </p>
+            <p className="text-xs text-text-muted mb-4">Dit verwijdert het project en alle build logs uit de database.</p>
+            <div className="flex gap-2 justify-end">
+              <GlowButton variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(false)}>Annuleren</GlowButton>
+              <button onClick={handleDelete} disabled={deleting}
+                className="px-4 py-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/30 text-sm font-medium hover:bg-red-500/20 disabled:opacity-50 flex items-center gap-2">
+                {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                Verwijderen
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -100,7 +157,7 @@ export default function ProjectPage() {
         </div>
       )}
 
-      {/* ===== UPGRADE BANNER ===== */}
+      {/* Upgrade banner for free users */}
       {isPreview && (
         <div className="mt-6 relative overflow-hidden rounded-2xl border border-accent/30">
           <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 via-accent/10 to-green-500/10" />
@@ -113,18 +170,17 @@ export default function ProjectPage() {
               AI designed your product with {(project.architecture?.database?.tables || []).length} tables,{' '}
               {(project.architecture?.fileStructure || []).length} files, and{' '}
               {(project.architecture?.apiRoutes || []).length} API routes.
-              Upgrade to generate code, set up payments, and go live.
             </p>
             <Link href="/pricing">
               <GlowButton variant="green" size="lg">
                 <Rocket className="h-5 w-5" /> Deploy this SaaS — Starting at $19/mo
               </GlowButton>
             </Link>
-            <p className="text-[10px] text-text-muted mt-3">Full build ~10 min &middot; Code on your GitHub</p>
           </div>
         </div>
       )}
 
+      {/* Live banner */}
       {project.status === 'live' && (
         <div className="mt-6 bg-accent-green/5 border border-accent-green/20 rounded-xl p-5 text-center">
           <span className="text-3xl">🎉</span>
@@ -138,6 +194,18 @@ export default function ProjectPage() {
         </div>
       )}
 
+      {/* Building indicator */}
+      {isBuilding && (
+        <div className="mt-6 bg-accent/5 border border-accent/20 rounded-xl p-4 flex items-center gap-3">
+          <Loader2 className="h-5 w-5 animate-spin text-accent" />
+          <div>
+            <p className="text-accent font-medium text-sm">Building...</p>
+            <p className="text-xs text-text-muted">Step {project.current_step}/11 — {project.status}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Failed */}
       {project.status === 'failed' && (
         <div className="mt-6 bg-accent-pink/5 border border-accent-pink/20 rounded-xl p-4">
           <p className="text-accent-pink font-semibold">Pipeline failed at step {project.current_step}</p>
@@ -168,7 +236,6 @@ export default function ProjectPage() {
                 {project.supabase_url && <InfoCard label="Database" value={project.supabase_url} link />}
                 {project.domain && <InfoCard label="Domain" value={project.domain} />}
               </div>
-
               {project.features && (
                 <div className="bg-bg-card border border-border-default rounded-xl p-4">
                   <h3 className="text-sm font-semibold mb-3">Features</h3>
@@ -176,17 +243,12 @@ export default function ProjectPage() {
                     {(Array.isArray(project.features) ? project.features : project.features?.features || []).map((f: any, i: number) => (
                       <div key={i} className="flex items-center justify-between text-sm">
                         <span className="text-text-primary">{f.name || f}</span>
-                        {f.priority && (
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full ${
-                            f.priority === 'mvp' ? 'bg-accent/10 text-accent' : 'bg-bg-elevated text-text-muted'
-                          }`}>{f.priority}</span>
-                        )}
+                        {f.priority && <span className={`text-[10px] px-2 py-0.5 rounded-full ${f.priority === 'mvp' ? 'bg-accent/10 text-accent' : 'bg-bg-elevated text-text-muted'}`}>{f.priority}</span>}
                       </div>
                     ))}
                   </div>
                 </div>
               )}
-
               {project.architecture && (
                 <div className="bg-bg-card border border-border-default rounded-xl p-4">
                   <h3 className="text-sm font-semibold mb-3">Architecture</h3>
@@ -197,14 +259,12 @@ export default function ProjectPage() {
                   </div>
                 </div>
               )}
-
               {project.description && (
                 <div className="bg-bg-card border border-border-default rounded-xl p-4">
                   <h3 className="text-sm font-semibold mb-2">Description</h3>
                   <p className="text-sm text-text-secondary">{project.description}</p>
                 </div>
               )}
-
               {project.total_tokens > 0 && (
                 <div className="bg-bg-card border border-border-default rounded-xl p-4">
                   <h3 className="text-sm font-semibold mb-2">Build Cost</h3>
@@ -216,7 +276,6 @@ export default function ProjectPage() {
               )}
             </div>
           )}
-
           {tab === 'preview' && <PreviewTab project={project} />}
           {tab === 'logs' && <BuildLog logs={logs} />}
         </div>
@@ -228,12 +287,7 @@ export default function ProjectPage() {
 }
 
 function Stat({ n, label }: { n: number; label: string }) {
-  return (
-    <div>
-      <div className="text-2xl font-bold text-accent">{n}</div>
-      <div className="text-[10px] text-text-muted">{label}</div>
-    </div>
-  )
+  return <div><div className="text-2xl font-bold text-accent">{n}</div><div className="text-[10px] text-text-muted">{label}</div></div>
 }
 
 function InfoCard({ label, value, link }: { label: string; value: string; link?: boolean }) {

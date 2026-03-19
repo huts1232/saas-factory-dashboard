@@ -6,42 +6,35 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
+  const body = await req.json().catch(() => ({}))
+  const isAdmin = body.isAdmin || false
+  const startFromStep = body.startFromStep
+
   const supabase = createServiceClient()
+  const { data: project, error } = await supabase.from('factory_projects').select('*').eq('id', id).single()
+  if (error || !project) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
 
-  const { data: project, error } = await supabase
-    .from('factory_projects')
-    .select('*')
-    .eq('id', id)
-    .single()
+  const resumeFrom = startFromStep || (project.current_step + 1)
 
-  if (error || !project) {
-    return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+  // Reset status but keep data
+  await supabase.from('factory_projects').update({ status: 'pending', errors: [] }).eq('id', id)
+
+  // Only delete logs for steps we're re-running
+  if (!startFromStep) {
+    await supabase.from('build_logs').delete().eq('project_id', id)
   }
 
-  // Reset status
-  await supabase
-    .from('factory_projects')
-    .update({ status: 'pending', errors: [] })
-    .eq('id', id)
-
-  // Delete old logs so pipeline creates fresh ones
-  await supabase
-    .from('build_logs')
-    .delete()
-    .eq('project_id', id)
-
-  // Run pipeline in background using after()
   after(async () => {
     try {
-      await runPipeline(id)
+      await runPipeline(id, { startFromStep: resumeFrom, isAdmin })
     } catch (err) {
       console.error('Pipeline retry error:', err)
     }
   })
 
-  return NextResponse.json({ retrying: true })
+  return NextResponse.json({ retrying: true, startFromStep: resumeFrom })
 }
