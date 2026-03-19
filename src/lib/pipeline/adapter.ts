@@ -158,8 +158,8 @@ async function createVercelProject(projectName: string, repoName: string): Promi
     const existing = await checkRes.json()
     return { projectId: existing.id, url: `https://${projectName}.vercel.app` }
   }
-  // Create new
-  const res = await fetch('https://api.vercel.com/v10/projects', {
+  // Create new — try with GitHub link first, fall back to standalone
+  let res = await fetch('https://api.vercel.com/v10/projects', {
     method: 'POST',
     headers: { Authorization: `Bearer ${c.vercelToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -168,6 +168,15 @@ async function createVercelProject(projectName: string, repoName: string): Promi
       gitRepository: { type: 'github', repo: `${c.githubOwner}/${repoName}` },
     }),
   })
+  // If GitHub link fails (integration not installed), create standalone project
+  if (!res.ok) {
+    console.log('GitHub link failed, creating standalone Vercel project')
+    res = await fetch('https://api.vercel.com/v10/projects', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${c.vercelToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: projectName, framework: 'nextjs' }),
+    })
+  }
   if (!res.ok) throw new Error(`Vercel project creation failed: ${await res.text()}`)
   const data = await res.json()
   return { projectId: data.id, url: `https://${projectName}.vercel.app` }
@@ -313,7 +322,9 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
     const features = proj.features
     const arch = proj.architecture
     if (!features || !arch) throw new Error('Missing features or architecture')
-    const repoName = isFreeUser ? `preview-${slug}` : slug
+    // Use existing GitHub repo name if available (for resume/retry), otherwise create new slug
+    const existingRepo = proj.github_url ? proj.github_url.split('/').pop() : null
+    const repoName = existingRepo || (isFreeUser ? `preview-${slug}` : slug)
 
     // ===== STEP 3: CODE GENERATION =====
     if (startFrom <= 3) {
