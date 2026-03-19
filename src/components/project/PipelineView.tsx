@@ -45,10 +45,9 @@ export function PipelineView({ currentStep, status, logs, onRetry, isFree }: Pip
   logs.forEach((l) => logMap.set(l.step_number, l))
 
   function getStepStatus(step: number): 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'locked' {
-    if (isFree && step > 2) return 'locked' as any
     const log = logMap.get(step)
     if (log) return log.status as any
-    if (step === currentStep && !['live', 'failed', 'pending'].includes(status)) return 'running'
+    if (step === currentStep && !['live', 'failed', 'pending', 'preview'].includes(status)) return 'running'
     if (step < currentStep) return 'success'
     return 'pending'
   }

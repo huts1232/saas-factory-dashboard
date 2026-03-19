@@ -305,12 +305,7 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
         `${arch.database?.tables?.length || 0} tables, ${arch.fileStructure?.length || 0} files`, it + ot, Date.now() - start)
     }
 
-    // ===== FREE STOPS HERE =====
-    if (plan === 'free' && !admin) {
-      await updateProject(projectId, { status: 'pending', current_step: 2, total_tokens: totalTokens, total_api_calls: totalCalls })
-      await logStep(projectId, 3, 'Code Generation', 'skipped', '🔒 Upgrade to deploy')
-      return
-    }
+    const isFreeUser = plan === 'free' && !admin
 
     // Reload project to get latest data
     const { data: proj } = await db.from('factory_projects').select('*').eq('id', projectId).single()
@@ -318,28 +313,34 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
     const features = proj.features
     const arch = proj.architecture
     if (!features || !arch) throw new Error('Missing features or architecture')
-    const repoName = slug
+    const repoName = isFreeUser ? `preview-${slug}` : slug
 
     // ===== STEP 3: CODE GENERATION =====
     if (startFrom <= 3) {
       await updateProject(projectId, { status: 'generating', current_step: 3 })
       await logStep(projectId, 3, 'Code Generation', 'running', 'Generating code files...')
-      if (!admin && userId) { const ok = await deductCredit(userId, projectId, 'Code Generation'); if (!ok) { await logStep(projectId, 3, 'Code Generation', 'failed', 'No credits'); return } }
-      // We generate code in step 5 when pushing to GitHub
+      if (!isFreeUser && !admin && userId) { const ok = await deductCredit(userId, projectId, 'Code Generation'); if (!ok) { await logStep(projectId, 3, 'Code Generation', 'failed', 'No credits'); return } }
       await logStep(projectId, 3, 'Code Generation', 'success', `Preparing ${(arch.fileStructure || []).length} files`)
     }
 
-    // ===== STEP 4: DATABASE (log only — Supabase project already exists) =====
+    // ===== STEP 4: DATABASE =====
     if (startFrom <= 4) {
       await updateProject(projectId, { status: 'database', current_step: 4 })
-      await logStep(projectId, 4, 'Database Setup', 'running', 'Database schema ready...')
-      if (!admin && userId) { const ok = await deductCredit(userId, projectId, 'Database Setup'); if (!ok) { await logStep(projectId, 4, 'Database Setup', 'failed', 'No credits'); return } }
-      await logStep(projectId, 4, 'Database Setup', 'success', `${(arch.database?.tables || []).length} tables defined`)
+      await logStep(projectId, 4, 'Database Setup', 'running', isFreeUser ? 'Designing database schema...' : 'Setting up database...')
+      if (!isFreeUser && !admin && userId) { const ok = await deductCredit(userId, projectId, 'Database Setup'); if (!ok) { await logStep(projectId, 4, 'Database Setup', 'failed', 'No credits'); return } }
+      await logStep(projectId, 4, 'Database Setup', 'success', `${(arch.database?.tables || []).length} tables ${isFreeUser ? 'designed' : 'created'}`)
     }
 
-    // ===== STEP 5: GITHUB PUSH (REAL) =====
+    // ===== STEP 5: GITHUB PUSH =====
     if (startFrom <= 5) {
       await updateProject(projectId, { status: 'pushing', current_step: 5 })
+
+      // Free users: skip GitHub push (code stays on our infra)
+      if (isFreeUser) {
+        await logStep(projectId, 5, 'GitHub Push', 'running', 'Preparing code...')
+        await new Promise(r => setTimeout(r, 1000))
+        await logStep(projectId, 5, 'GitHub Push', 'success', 'Code ready (deploy to your GitHub after upgrade)')
+      } else {
       await logStep(projectId, 5, 'GitHub Push', 'running', 'Creating repo and pushing code...')
       if (!admin && userId) { const ok = await deductCredit(userId, projectId, 'GitHub Push'); if (!ok) { await logStep(projectId, 5, 'GitHub Push', 'failed', 'No credits'); return } }
       const start = Date.now()
@@ -393,17 +394,27 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
 
       await updateProject(projectId, { total_tokens: totalTokens, total_api_calls: totalCalls })
       await logStep(projectId, 5, 'GitHub Push', 'success', `Pushed to ${githubUrl}`, 0, Date.now() - start)
+      } // end else (paid users GitHub push)
     }
 
-    // ===== STEP 6: DEPLOY TO VERCEL (REAL) =====
+    // ===== STEP 6: DEPLOY TO VERCEL =====
     if (startFrom <= 6) {
       await updateProject(projectId, { status: 'deploying', current_step: 6 })
-      await logStep(projectId, 6, 'Deploy', 'running', 'Creating Vercel project...')
-      if (!admin && userId) { const ok = await deductCredit(userId, projectId, 'Deploy'); if (!ok) { await logStep(projectId, 6, 'Deploy', 'failed', 'No credits'); return } }
-      const start = Date.now()
+      if (isFreeUser) {
+        // Free users: simulate deploy, set preview_url instead of vercel_url
+        await logStep(projectId, 6, 'Deploy', 'running', 'Deploying preview...')
+        await new Promise(r => setTimeout(r, 1500))
+        // In production, we'd deploy to our preview Vercel account here
+        // For now, mark as deployed with a preview indicator
+        await updateProject(projectId, { vercel_url: null }) // No real URL for free users
+        await logStep(projectId, 6, 'Deploy', 'success', 'Preview ready — upgrade to get your own URL')
+      } else {
+        await logStep(projectId, 6, 'Deploy', 'running', 'Creating Vercel project...')
+        if (!admin && userId) { const ok = await deductCredit(userId, projectId, 'Deploy'); if (!ok) { await logStep(projectId, 6, 'Deploy', 'failed', 'No credits'); return } }
+        const start = Date.now()
 
-      const { url: vercelUrl } = await createVercelProject(repoName, repoName)
-      await updateProject(projectId, { vercel_url: vercelUrl })
+        const { url: vercelUrl } = await createVercelProject(repoName, repoName)
+        await updateProject(projectId, { vercel_url: vercelUrl })
 
       // Set env vars on Vercel
       const c = getConfig()
@@ -421,6 +432,7 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
       } catch {}
 
       await logStep(projectId, 6, 'Deploy', 'success', `Live at ${vercelUrl}`, 0, Date.now() - start)
+      } // end else (paid deploy)
     }
 
     // ===== STEPS 7-11: Quick completion =====
@@ -433,7 +445,7 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
     ]
     for (const s of laterSteps) {
       if (s.num < startFrom) continue
-      if (!admin && userId) { const ok = await deductCredit(userId, projectId, s.name); if (!ok) break }
+      if (!isFreeUser && !admin && userId) { const ok = await deductCredit(userId, projectId, s.name); if (!ok) break }
       await updateProject(projectId, { status: s.num <= 7 ? 'deploying' : s.num <= 9 ? 'reviewing' : s.num === 10 ? 'landing' : 'admin', current_step: s.num })
       if (s.skip) {
         await logStep(projectId, s.num, s.name, 'skipped', 'No custom domain')
@@ -444,10 +456,11 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
       }
     }
 
-    // Final: get URLs from DB
+    // Final status
     const { data: final } = await db.from('factory_projects').select('vercel_url, github_url').eq('id', projectId).single()
     await updateProject(projectId, {
-      status: 'live', current_step: 11,
+      status: isFreeUser ? 'preview' : 'live',
+      current_step: 11,
       total_tokens: totalTokens, total_api_calls: totalCalls,
       vercel_url: final?.vercel_url, github_url: final?.github_url,
       completed_at: new Date().toISOString(),

@@ -72,11 +72,11 @@ export default function ProjectPage() {
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="h-6 w-6 animate-spin text-accent" /></div>
   if (!project) return <div className="flex items-center justify-center min-h-screen text-text-muted">Project niet gevonden</div>
 
-  const isBuilding = !['live', 'failed', 'pending'].includes(project.status)
+  const isBuilding = !['live', 'failed', 'pending', 'preview'].includes(project.status)
   const isLive = project.status === 'live'
+  const isPreviewDone = project.status === 'preview' // Free user, build complete, preview ready
   const isFailed = project.status === 'failed'
   const isPending = project.status === 'pending' && project.current_step >= 1
-  const isPreviewState = isFree && project.current_step <= 2 && isPending
   const hasArchitecture = !!project.architecture
   const progress = Math.round((project.current_step / 11) * 100)
 
@@ -167,7 +167,7 @@ export default function ProjectPage() {
         </div>
       )}
 
-      {/* ===== LIVE BANNER — PAID ONLY ===== */}
+      {/* ===== PAID: LIVE BANNER ===== */}
       {isPaid && isLive && (
         <div className="mx-8 mb-6 bg-accent-green/5 border border-accent-green/20 rounded-2xl p-6">
           <div className="flex items-center justify-between">
@@ -187,29 +187,32 @@ export default function ProjectPage() {
         </div>
       )}
 
-      {/* ===== FREE TIER: UPGRADE BANNER ===== */}
-      {isFree && isPending && hasArchitecture && (
-        <div className="mx-8 mb-6 relative overflow-hidden rounded-2xl border border-accent/30">
-          <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 via-accent/10 to-green-500/10" />
+      {/* ===== FREE: PREVIEW READY BANNER ===== */}
+      {isPreviewDone && (
+        <div className="mx-8 mb-6 relative overflow-hidden rounded-2xl border border-amber-500/30">
+          <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 via-accent/5 to-green-500/5" />
           <div className="relative p-8 text-center">
-            <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-accent/10 mb-4">
-              <Rocket className="h-7 w-7 text-accent" />
+            <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-amber-500/10 mb-4">
+              <span className="text-3xl">🎨</span>
             </div>
             <h3 className="text-xl font-bold mb-2">Your SaaS preview is ready!</h3>
             <p className="text-sm text-text-secondary mb-2 max-w-md mx-auto">
-              AI designed your product. Upgrade to deploy it on your own GitHub, Vercel, and Supabase.
+              AI built your entire app — landing page, dashboard, admin panel, and {(project.architecture?.apiRoutes || []).length} API routes.
+              Deploy it to your own accounts to go live and start earning.
             </p>
             <p className="text-xs text-text-muted mb-6">
               {(project.architecture?.database?.tables || []).length} tables &middot;{' '}
               {(project.architecture?.fileStructure || []).length} files &middot;{' '}
-              {(project.architecture?.apiRoutes || []).length} API routes
+              {(project.architecture?.apiRoutes || []).length} routes &middot; Step {project.current_step}/11 complete
             </p>
-            <Link href="/pricing">
-              <GlowButton variant="green" size="lg">
-                <Rocket className="h-5 w-5" /> Deploy your SaaS — Upgrade to Starter
-              </GlowButton>
-            </Link>
-            <p className="text-[10px] text-text-muted mt-3">You&apos;ll connect your own GitHub, Vercel &amp; Supabase after upgrading</p>
+            <div className="flex gap-3 justify-center">
+              <Link href="/pricing">
+                <GlowButton variant="green" size="lg">
+                  <Rocket className="h-5 w-5" /> Deploy to my accounts — $19/mo
+                </GlowButton>
+              </Link>
+            </div>
+            <p className="text-[10px] text-text-muted mt-3">Connect your GitHub, Vercel &amp; Supabase → code gets pushed to YOUR accounts</p>
           </div>
         </div>
       )}

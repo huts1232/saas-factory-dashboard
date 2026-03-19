@@ -67,5 +67,6 @@ export const STATUS_CONFIG: Record<string, { color: string; bg: string; label: s
   landing: { color: 'text-pink-400', bg: 'bg-pink-400/10', label: 'Landing Page' },
   admin: { color: 'text-violet-400', bg: 'bg-violet-400/10', label: 'Admin' },
   live: { color: 'text-green-400', bg: 'bg-green-400/10', label: 'Live' },
+  preview: { color: 'text-amber-400', bg: 'bg-amber-400/10', label: 'Preview' },
   failed: { color: 'text-red-400', bg: 'bg-red-400/10', label: 'Failed' },
 }
