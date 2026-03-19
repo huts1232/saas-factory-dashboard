@@ -29,9 +29,12 @@ export function Sidebar() {
       const { data: projects } = await projectQuery
       setRecentProjects(projects || [])
 
-      const { data: conns } = await supabase.from('user_connectors')
-        .select('service, status').eq('user_id', user.id)
-      setConnectors(conns || [])
+      // Only load connectors for paid users
+      if (plan !== 'free' || isAdmin) {
+        const { data: conns } = await supabase.from('user_connectors')
+          .select('service, status').eq('user_id', user.id)
+        setConnectors(conns || [])
+      }
     }
     loadData()
   }, [user?.id, isAdmin])
@@ -125,8 +128,8 @@ export function Sidebar() {
           </>
         )}
 
-        {/* Connectors */}
-        {connectors.length > 0 && (
+        {/* Connectors — paid only */}
+        {(plan !== 'free' || isAdmin) && connectors.length > 0 && (
           <>
             <div className="pt-5 pb-1 px-3 text-[10px] font-semibold text-text-muted uppercase tracking-wider">Connectors</div>
             {connectors.map((c) => (
