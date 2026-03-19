@@ -77,9 +77,9 @@ const FEATURES = [
 ]
 
 const EXAMPLES = [
-  { name: 'StudyGen', tagline: 'AI study tools for students', time: '12 min', price: '$9/mo', features: ['AI Quizzes', 'Flashcards', 'Progress'], url: 'https://studygen-sand.vercel.app', tables: 9, files: 29, routes: 21, idea: 'A study tool where students upload PDFs and AI generates flashcards and quizzes' },
-  { name: 'InvoiceFlow', tagline: 'Invoicing for freelancers', time: '14 min', price: '$19/mo', features: ['Auto-generate', 'Payments', 'Clients'], tables: 6, files: 22, routes: 14, idea: 'An invoice tool for freelancers to create, send, and track invoices' },
-  { name: 'TestMark', tagline: 'Bookmark health monitoring', time: '18 min', price: '$5/mo', features: ['URL Monitor', 'Alerts', 'Teams'], url: 'https://testmark-blush.vercel.app', tables: 5, files: 59, routes: 14, idea: 'A bookmark health monitoring tool that tests URLs and alerts when they break' },
+  { name: 'StudyGen', icon: '📚', tagline: 'AI-powered study tools for students', time: '12 min', price: '$9/mo', features: ['PDF Upload', 'AI Flashcards', 'Smart Quizzes', 'Progress Tracking'], tables: 9, files: 29, routes: 21, idea: 'A study tool where students upload PDFs and AI generates flashcards and quizzes', color: 'from-blue-600 to-purple-600', description: 'Upload any document. AI creates personalized flashcards, quizzes, and study plans.' },
+  { name: 'InvoiceFlow', icon: '🧾', tagline: 'Dead-simple invoicing for freelancers', time: '14 min', price: '$19/mo', features: ['Create Invoices', 'Payment Tracking', 'Client Portal', 'PDF Export'], tables: 6, files: 22, routes: 14, idea: 'An invoice tool for freelancers to create, send, and track invoices', color: 'from-emerald-600 to-teal-600', description: 'Create beautiful invoices, track payments, manage clients. All in one place.' },
+  { name: 'TestMark', icon: '🔖', tagline: 'Bookmark health monitoring for teams', time: '18 min', price: '$5/mo', features: ['URL Monitoring', 'Health Alerts', 'Team Sharing', 'Status Dashboard'], tables: 5, files: 59, routes: 14, idea: 'A bookmark health monitoring tool that tests URLs and alerts when they break', color: 'from-orange-600 to-red-600', description: 'Monitor your bookmarks. Get alerted when links break. Never share a dead link.' },
 ]
 
 const PLANS = [
@@ -324,31 +324,72 @@ export function LandingPage({ projectCount }: { projectCount: number }) {
       {/* ===== EXAMPLES ===== */}
       <section className="px-6 py-28 max-w-5xl mx-auto">
         <p className="text-accent text-sm font-medium mb-2 text-center">Real examples</p>
-        <h2 className="text-3xl md:text-4xl font-bold text-center mb-16">See what builders are creating</h2>
+        <h2 className="text-3xl md:text-4xl font-bold text-center mb-4">See what builders are creating</h2>
+        <p className="text-text-secondary text-center mb-14">Click any project to see a live preview</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {EXAMPLES.map((ex, i) => (
             <motion.button key={ex.name} onClick={() => setPreviewProject(ex)}
               initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }} transition={{ delay: i * 0.1 }}
-              className="bg-bg-card border border-border-default rounded-2xl p-6 hover:border-accent/30 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20 transition-all text-left group">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold group-hover:text-accent transition-colors">{ex.name}</h3>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent-green/10 text-accent-green font-medium">⚡ {ex.time}</span>
+              className="bg-bg-card border border-border-default rounded-2xl overflow-hidden hover:border-accent/30 hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-black/30 transition-all text-left group">
+
+              {/* Preview thumbnail */}
+              <div className={`bg-gradient-to-br ${ex.color} p-4 pb-6 relative overflow-hidden`}>
+                <div className="absolute inset-0 bg-black/20" />
+                <div className="relative">
+                  {/* Mini browser mockup */}
+                  <div className="bg-white rounded-lg shadow-xl overflow-hidden transform group-hover:scale-[1.02] transition-transform">
+                    <div className="flex items-center gap-1 px-2 py-1 bg-gray-100 border-b">
+                      <div className="flex gap-0.5">
+                        <div className="h-1 w-1 rounded-full bg-red-400" />
+                        <div className="h-1 w-1 rounded-full bg-yellow-400" />
+                        <div className="h-1 w-1 rounded-full bg-green-400" />
+                      </div>
+                      <div className="flex-1 text-center text-[6px] text-gray-400 font-mono">{ex.name.toLowerCase()}.com</div>
+                    </div>
+                    <div className="p-2 bg-white h-20">
+                      <div className="text-[7px] font-bold text-gray-900 mb-1">{ex.name}</div>
+                      <div className="text-[5px] text-gray-500 mb-2">{ex.tagline}</div>
+                      <div className="flex gap-1">
+                        <div className="h-1.5 w-8 bg-blue-500 rounded" />
+                        <div className="h-1.5 w-6 bg-gray-200 rounded" />
+                      </div>
+                      <div className="grid grid-cols-3 gap-1 mt-2">
+                        {[0, 1, 2].map(j => <div key={j} className="h-4 bg-gray-50 rounded border border-gray-100" />)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Preview badge */}
+                <div className="absolute top-2 right-2 px-2 py-1 bg-black/40 backdrop-blur-sm rounded-full text-[8px] text-white font-medium flex items-center gap-1">
+                  🖥 Live preview
+                </div>
               </div>
-              <p className="text-sm text-text-secondary mb-4">{ex.tagline}</p>
-              <div className="flex flex-wrap gap-1.5 mb-4">
-                {ex.features.map((f) => <span key={f} className="text-[10px] px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted">{f}</span>)}
+
+              {/* Card content */}
+              <div className="p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">{ex.icon}</span>
+                    <h3 className="font-bold group-hover:text-accent transition-colors">{ex.name}</h3>
+                  </div>
+                  <span className="text-[9px] px-2 py-0.5 rounded-full bg-accent-green/10 text-accent-green font-medium">⚡ {ex.time}</span>
+                </div>
+                <p className="text-xs text-text-secondary mb-3">{ex.tagline}</p>
+                <div className="flex flex-wrap gap-1 mb-3">
+                  {ex.features.slice(0, 3).map((f) => <span key={f} className="text-[9px] px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted">{f}</span>)}
+                </div>
+                <div className="flex items-center justify-between pt-3 border-t border-border-default">
+                  <span className="text-xs">Users pay <span className="text-accent-green font-bold">{ex.price}</span></span>
+                  <span className="text-[10px] text-accent font-medium opacity-0 group-hover:opacity-100 transition-opacity">Preview →</span>
+                </div>
               </div>
-              <div className="pt-3 border-t border-border-default text-sm">
-                Users pay <span className="text-accent-green font-semibold">{ex.price}</span>
-              </div>
-              <p className="text-[10px] text-accent mt-3 opacity-0 group-hover:opacity-100 transition-opacity">Click to preview →</p>
             </motion.button>
           ))}
         </div>
       </section>
 
-      {/* Preview modal */}
       <ProjectPreviewModal project={previewProject} open={!!previewProject} onClose={() => setPreviewProject(null)} />
 
       {/* ===== THE MATH ===== */}
