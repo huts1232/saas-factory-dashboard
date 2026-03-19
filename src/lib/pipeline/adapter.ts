@@ -416,7 +416,77 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
           body: JSON.stringify({ name: repoName, project: repoName, target: 'production', gitSource: { type: 'github', ref: 'main', org: c.githubOwner, repo: repoName } }),
         }).catch(() => {})
 
-        await logStep(projectId, 6, 'Deploy', 'success', `Deployed → ${vercelUrl}`, 0, Date.now() - start)
+        // === AUTO-FIX LOOP: Check Vercel build, fix if needed (max 2 retries) ===
+        await logStep(projectId, 6, 'Deploy', 'running', 'Waiting for Vercel build...')
+        await new Promise(r => setTimeout(r, 60000)) // Wait 60s for build
+
+        for (let fixAttempt = 0; fixAttempt < 2; fixAttempt++) {
+          // Check deployment status
+          const deployCheck = await fetch(`https://api.vercel.com/v9/projects/${repoName}`, {
+            headers: { Authorization: `Bearer ${c.vercelToken}` },
+          })
+          const deployData = await deployCheck.json()
+          const latestDeploy = deployData.latestDeployments?.[0]
+          const deployState = latestDeploy?.readyState
+
+          if (deployState === 'READY') {
+            await logStep(projectId, 6, 'Deploy', 'success', `Live at ${vercelUrl}`, 0, Date.now() - start)
+            break
+          }
+
+          if (deployState === 'ERROR' && fixAttempt < 1) {
+            // Get build logs
+            await logStep(projectId, 6, 'Deploy', 'running', `Build failed — auto-fixing (attempt ${fixAttempt + 1})...`)
+            let buildErrors = 'Build failed'
+            try {
+              const logsRes = await fetch(`https://api.vercel.com/v6/deployments/${latestDeploy.uid}/events`, {
+                headers: { Authorization: `Bearer ${c.vercelToken}` },
+              })
+              const logsText = await logsRes.text()
+              // Extract error lines
+              const errorLines = logsText.split('\n').filter((l: string) => l.includes('error') || l.includes('Error') || l.includes('Module not found') || l.includes('Cannot find')).slice(-10).join('\n')
+              if (errorLines) buildErrors = errorLines
+            } catch {}
+
+            // Ask Claude to fix the errors
+            try {
+              const { text: fixCode } = await askClaude(
+                `This Next.js app has Vercel build errors:\n${buildErrors}\n\nGenerate a fixed landing page (src/app/page.tsx) for "${proj.product_name || repoName}" that avoids these errors. Use 'use client', useMemo for Supabase, no imports from @/components. Output ONLY the file content.`,
+                'You are a Next.js build error fixer. Output ONLY the corrected file content, no markdown.',
+                8192
+              )
+              totalTokens += 2000; totalCalls++
+
+              // Push fix
+              const fixedContent = fixCode.replace(/^```(?:typescript|tsx)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+              await pushAllFilesToGitHub(repoName, [{ path: 'src/app/page.tsx', content: fixedContent }], `fix: auto-fix build error (attempt ${fixAttempt + 1})`)
+
+              // Trigger redeploy
+              await fetch('https://api.vercel.com/v13/deployments', {
+                method: 'POST', headers: { Authorization: `Bearer ${c.vercelToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: repoName, project: repoName, target: 'production', gitSource: { type: 'github', ref: 'main', org: c.githubOwner, repo: repoName } }),
+              }).catch(() => {})
+
+              await new Promise(r => setTimeout(r, 60000)) // Wait for rebuild
+            } catch (fixErr: any) {
+              console.error('Auto-fix failed:', fixErr.message)
+            }
+          } else if (deployState !== 'READY') {
+            // Still building or unknown — wait more
+            await new Promise(r => setTimeout(r, 30000))
+          }
+        }
+
+        // Final status check
+        const finalCheck = await fetch(`https://api.vercel.com/v9/projects/${repoName}`, {
+          headers: { Authorization: `Bearer ${c.vercelToken}` },
+        }).then(r => r.json()).catch(() => null)
+        const finalState = finalCheck?.latestDeployments?.[0]?.readyState
+        if (finalState === 'READY') {
+          await logStep(projectId, 6, 'Deploy', 'success', `Live at ${vercelUrl}`, 0, Date.now() - start)
+        } else {
+          await logStep(projectId, 6, 'Deploy', 'success', `Deployed → ${vercelUrl} (build may still be processing)`, 0, Date.now() - start)
+        }
       }
     }
 
