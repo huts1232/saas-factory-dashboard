@@ -411,25 +411,30 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
       allFilesForPush.push({ path: 'next.config.mjs', content: '/** @type {import("next").NextConfig} */\nconst nextConfig = {};\nexport default nextConfig;' })
       allFilesForPush.push({ path: 'src/app/globals.css', content: '@tailwind base;\n@tailwind components;\n@tailwind utilities;' })
 
-      // Generate key pages (6 max for timeout)
-      const archFiles = arch.fileStructure || []
-      const keyFiles = [
-        archFiles.find((f: any) => f.path === 'app/page.tsx' || (f.path.includes('page.tsx') && f.path.split('/').length <= 2)),
-        archFiles.find((f: any) => f.path.includes('layout.tsx')),
-        archFiles.find((f: any) => f.path.includes('dashboard') && f.path.includes('page.tsx')),
-        ...archFiles.filter((f: any) => f.path.includes('page.tsx') && !f.path.includes('layout') && !f.path.includes('dashboard')).slice(0, 3),
-      ].filter(Boolean).slice(0, 6)
-      const allPaths = keyFiles.map((f: any) => f.path)
+      // Generate layout (static, no Claude needed) + landing + dashboard via Claude
+      // Only 2 Claude calls to stay well within 300s timeout
+      const productName = proj.product_name || repoName
+      const tagline = proj.tagline || 'Your new SaaS'
+      const desc = proj.description || proj.idea
 
-      for (const file of keyFiles) {
+      // Static layout — no Claude call needed
+      allFilesForPush.push({ path: 'src/app/layout.tsx', content: `import type { Metadata } from "next"\nimport "./globals.css"\n\nexport const metadata: Metadata = {\n  title: "${productName} — ${tagline}",\n  description: "${desc.replace(/"/g, '\\"').slice(0, 150)}",\n}\n\nexport default function RootLayout({ children }: { children: React.ReactNode }) {\n  return (\n    <html lang="en">\n      <body className="min-h-screen bg-gray-50 antialiased">{children}</body>\n    </html>\n  )\n}` })
+
+      // Generate landing page + dashboard with Claude (2 calls only)
+      const archFiles = arch.fileStructure || []
+      const allPaths = archFiles.slice(0, 10).map((f: any) => f.path)
+
+      for (const pageInfo of [
+        { path: 'app/page.tsx', desc: `Landing page for ${productName}: hero with tagline, features, pricing, CTA` },
+        { path: 'app/dashboard/page.tsx', desc: `Dashboard page for ${productName}: stats, data table, sidebar navigation` },
+      ]) {
         try {
-          await logStep(projectId, 5, 'GitHub Push', 'running', `Generating ${file.path}...`)
-          const code = await generateFileCode(getConfig(), features, arch, file.path, file.description, allPaths)
+          await logStep(projectId, 5, 'GitHub Push', 'running', `Generating ${pageInfo.path}...`)
+          const code = await generateFileCode(getConfig(), features, arch, pageInfo.path, pageInfo.desc, allPaths)
           totalTokens += 2000; totalCalls++
-          const path = file.path.startsWith('src/') ? file.path : `src/${file.path}`
-          allFilesForPush.push({ path, content: code })
+          allFilesForPush.push({ path: `src/${pageInfo.path}`, content: code })
         } catch (err: any) {
-          console.error(`Failed to generate ${file.path}:`, err.message)
+          console.error(`Failed to generate ${pageInfo.path}:`, err.message)
         }
       }
 
