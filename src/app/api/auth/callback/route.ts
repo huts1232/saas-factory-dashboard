@@ -1,0 +1,43 @@
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+import { NextResponse } from 'next/server'
+
+export async function GET(request: Request) {
+  const { searchParams, origin } = new URL(request.url)
+  const code = searchParams.get('code')
+  const redirect = searchParams.get('redirect') || '/dashboard'
+
+  if (code) {
+    const cookieStore = await cookies()
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() { return cookieStore.getAll() },
+          setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            )
+          },
+        },
+      }
+    )
+
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    if (!error) {
+      // Create free subscription if not exists
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        await supabase.from('subscriptions').upsert({
+          user_id: user.id,
+          plan: 'free',
+          status: 'active',
+        }, { onConflict: 'user_id' })
+      }
+      return NextResponse.redirect(`${origin}${redirect}`)
+    }
+  }
+
+  return NextResponse.redirect(`${origin}/login?error=auth`)
+}

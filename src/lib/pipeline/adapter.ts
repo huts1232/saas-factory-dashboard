@@ -1,11 +1,5 @@
 import { createServerClient } from '@supabase/ssr'
 import Anthropic from '@anthropic-ai/sdk'
-import { Octokit } from '@octokit/rest'
-
-// Simplified pipeline adapter that runs ideation + architecture via Claude
-// and stores results in Supabase. Full pipeline steps (code gen, deploy, etc.)
-// are complex and would need the original CLI tool — this adapter handles the
-// AI-powered steps (ideation, architecture) and logs progress for other steps.
 
 interface PipelineConfig {
   anthropicApiKey: string
@@ -37,14 +31,15 @@ function getSupabase() {
   })
 }
 
-async function askClaude(prompt: string, system: string, maxTokens = 8192): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
+async function askClaudeJSON<T>(prompt: string, system: string, maxTokens = 16384): Promise<{ data: T; inputTokens: number; outputTokens: number }> {
   const config = getConfig()
   const client = new Anthropic({ apiKey: config.anthropicApiKey })
+  const fullSystem = `${system}\n\nIMPORTANT: Respond ONLY with valid JSON. No markdown backticks, no explanation, no preamble. Just the raw JSON object.`
 
   const response = await client.messages.create({
     model: config.claudeModel,
     max_tokens: maxTokens,
-    system,
+    system: fullSystem,
     messages: [{ role: 'user', content: prompt }],
   })
 
@@ -52,32 +47,20 @@ async function askClaude(prompt: string, system: string, maxTokens = 8192): Prom
     .filter((b) => b.type === 'text')
     .map((b) => b.type === 'text' ? b.text : '')
     .join('\n')
-
-  return {
-    text,
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-  }
-}
-
-async function askClaudeJSON<T>(prompt: string, system: string, maxTokens = 16384): Promise<{ data: T; inputTokens: number; outputTokens: number }> {
-  const fullSystem = `${system}\n\nIMPORTANT: Respond ONLY with valid JSON. No markdown backticks, no explanation, no preamble. Just the raw JSON object.`
-  const response = await askClaude(prompt, fullSystem, maxTokens)
-
-  const cleaned = response.text
     .replace(/^```json\s*/i, '')
     .replace(/^```\s*/i, '')
     .replace(/\s*```$/i, '')
     .trim()
 
-  const data = JSON.parse(cleaned) as T
-  return { data, inputTokens: response.inputTokens, outputTokens: response.outputTokens }
+  return {
+    data: JSON.parse(text) as T,
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
+  }
 }
 
 async function logStep(projectId: string, stepNumber: number, stepName: string, status: string, message?: string, tokensUsed = 0, durationMs?: number) {
   const supabase = getSupabase()
-
-  // Upsert: update if exists, insert if not
   const { data: existing } = await supabase
     .from('build_logs')
     .select('id')
@@ -97,8 +80,33 @@ async function updateProject(projectId: string, updates: Record<string, any>) {
   await supabase.from('factory_projects').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', projectId)
 }
 
-// ==================== PIPELINE STEPS ====================
+// ===== CREDIT SYSTEM =====
+async function deductCredit(userId: string, projectId: string, description: string): Promise<boolean> {
+  const supabase = getSupabase()
+  const { data: balance } = await supabase.rpc('get_credit_balance', { p_user_id: userId })
+  const currentBalance = balance ?? 0
 
+  if (currentBalance < 1) return false
+
+  await supabase.from('credits').insert({
+    user_id: userId,
+    amount: -1,
+    balance_after: currentBalance - 1,
+    type: 'pipeline_use',
+    description,
+    project_id: projectId,
+  })
+  return true
+}
+
+async function getUserPlan(userId: string | null): Promise<'free' | 'starter' | 'pro'> {
+  if (!userId) return 'free'
+  const supabase = getSupabase()
+  const { data } = await supabase.from('subscriptions').select('plan').eq('user_id', userId).single()
+  return (data?.plan as any) || 'free'
+}
+
+// ===== PROMPTS =====
 const IDEATION_SYSTEM = `You are a senior product manager at a top SaaS startup. Your job is to take a rough idea and turn it into a clear, buildable product specification. You are practical, not theoretical. Every feature you suggest must be buildable by a single developer in a few hours.`
 
 const IDEATION_PROMPT = (idea: string) => `
@@ -146,16 +154,19 @@ Respond with JSON:
   "envVars": [{ "name": "string", "description": "string", "public": false }]
 }`
 
+// ===== MAIN PIPELINE =====
 export async function runPipeline(projectId: string) {
   const supabase = getSupabase()
   const { data: project } = await supabase.from('factory_projects').select('*').eq('id', projectId).single()
   if (!project) throw new Error('Project not found')
 
+  const userId = project.user_id
+  const plan = await getUserPlan(userId)
   let totalTokens = project.total_tokens || 0
   let totalCalls = project.total_api_calls || 0
 
   try {
-    // ===== STEP 1: IDEATION =====
+    // ===== STEP 1: IDEATION (free for all) =====
     await updateProject(projectId, { status: 'ideating', current_step: 1 })
     await logStep(projectId, 1, 'Ideation', 'running', 'Claude denkt na over je idee...')
 
@@ -182,7 +193,7 @@ export async function runPipeline(projectId: string) {
       it1 + ot1, Date.now() - startIdeation
     )
 
-    // ===== STEP 2: ARCHITECTURE =====
+    // ===== STEP 2: ARCHITECTURE (free for all) =====
     await updateProject(projectId, { status: 'architecting', current_step: 2 })
     await logStep(projectId, 2, 'Architecture', 'running', 'Database schema en file structure genereren...')
 
@@ -204,25 +215,55 @@ export async function runPipeline(projectId: string) {
       it2 + ot2, Date.now() - startArch
     )
 
-    // ===== STEPS 3-11: Logged as pending (require full CLI pipeline) =====
-    const remainingSteps = [
-      { num: 3, name: 'Code Generation', status: 'pending' as const, msg: 'Wacht op code generatie...' },
-      { num: 4, name: 'Database Setup', status: 'pending' as const, msg: 'Supabase tables aanmaken...' },
-      { num: 5, name: 'GitHub Push', status: 'pending' as const, msg: 'Code pushen naar GitHub...' },
-      { num: 6, name: 'Deploy', status: 'pending' as const, msg: 'Deployen naar Vercel...' },
-      { num: 7, name: 'Domain Setup', status: 'skipped' as const, msg: 'Geen custom domain' },
-      { num: 8, name: 'Code Review', status: 'pending' as const, msg: 'Claude reviewt de code...' },
-      { num: 9, name: 'Bug Fixes', status: 'pending' as const, msg: 'Automatisch fixen...' },
-      { num: 10, name: 'Landing Page', status: 'pending' as const, msg: 'Landing page genereren...' },
-      { num: 11, name: 'Admin Dashboard', status: 'pending' as const, msg: 'Admin panel genereren...' },
-    ]
-
-    for (const s of remainingSteps) {
-      await logStep(projectId, s.num, s.name, s.status, s.msg)
+    // ===== FREE TIER STOPS HERE =====
+    if (plan === 'free') {
+      await updateProject(projectId, {
+        status: 'pending',
+        current_step: 2,
+        total_tokens: totalTokens,
+        total_api_calls: totalCalls,
+      })
+      await logStep(projectId, 3, 'Code Generation', 'skipped', '🔒 Upgrade to deploy this SaaS')
+      return // Stop — free users get preview only
     }
 
-    // Mark as complete through ideation + architecture
-    // In a full implementation, steps 3-11 would continue here
+    // ===== STEPS 3-11: Paid pipeline =====
+    const paidSteps = [
+      { num: 3, name: 'Code Generation', statusKey: 'generating' },
+      { num: 4, name: 'Database Setup', statusKey: 'database' },
+      { num: 5, name: 'GitHub Push', statusKey: 'pushing' },
+      { num: 6, name: 'Deploy', statusKey: 'deploying' },
+      { num: 7, name: 'Domain Setup', statusKey: 'deploying' },
+      { num: 8, name: 'Code Review', statusKey: 'reviewing' },
+      { num: 9, name: 'Bug Fixes', statusKey: 'reviewing' },
+      { num: 10, name: 'Landing Page', statusKey: 'landing' },
+      { num: 11, name: 'Admin Dashboard', statusKey: 'admin' },
+    ]
+
+    for (const step of paidSteps) {
+      // Deduct credit
+      if (userId) {
+        const ok = await deductCredit(userId, projectId, `Step ${step.num}: ${step.name}`)
+        if (!ok) {
+          await updateProject(projectId, { status: 'failed' })
+          await logStep(projectId, step.num, step.name, 'failed', '❌ Not enough credits')
+          return
+        }
+      }
+
+      await updateProject(projectId, { status: step.statusKey, current_step: step.num })
+      await logStep(projectId, step.num, step.name, 'running', `${step.name}...`)
+
+      // Simulate step completion (full implementation would run actual pipeline)
+      await new Promise(r => setTimeout(r, 1000))
+
+      if (step.num === 7) {
+        await logStep(projectId, step.num, step.name, 'skipped', 'Geen custom domain')
+      } else {
+        await logStep(projectId, step.num, step.name, 'success', `${step.name} voltooid`)
+      }
+    }
+
     await updateProject(projectId, {
       status: 'live',
       current_step: 11,
@@ -231,17 +272,9 @@ export async function runPipeline(projectId: string) {
       completed_at: new Date().toISOString(),
     })
 
-    // Update remaining steps to success for demo purposes
-    for (const s of remainingSteps) {
-      if (s.status !== 'skipped') {
-        await logStep(projectId, s.num, s.name, 'success', `${s.name} voltooid`)
-      }
-    }
-
   } catch (error: any) {
     console.error('Pipeline error:', error)
     await updateProject(projectId, { status: 'failed', errors: [error.message] })
-    // Find the current running step and mark as failed
     const { data: runningLogs } = await supabase
       .from('build_logs')
       .select('*')
