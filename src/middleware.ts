@@ -1,19 +1,14 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-// These paths require authentication — redirect to /login if not authed
 const PROTECTED_API = ['/api/connectors', '/api/credits', '/api/subscription']
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Only protect specific API routes that need auth
-  // Pages use client-side login modal instead of redirect
-  const isProtectedApi = PROTECTED_API.some(p => pathname.startsWith(p))
-  if (!isProtectedApi) return NextResponse.next()
-
   let response = NextResponse.next({ request })
 
+  // Create Supabase client that refreshes auth tokens via cookies
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -29,9 +24,11 @@ export async function middleware(request: NextRequest) {
     }
   )
 
+  // ALWAYS refresh the session — this keeps the user logged in
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user) {
+  // Protected API routes require auth
+  if (PROTECTED_API.some(p => pathname.startsWith(p)) && !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -39,5 +36,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/api/connectors/:path*', '/api/credits/:path*', '/api/subscription/:path*'],
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
 }

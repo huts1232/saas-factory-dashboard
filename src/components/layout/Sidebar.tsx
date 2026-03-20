@@ -51,6 +51,7 @@ export function Sidebar() {
     { href: '/dashboard', label: 'All Projects', icon: FolderOpen },
     { href: '/templates', label: 'Templates', icon: BookTemplate },
     { href: '/settings', label: 'Settings', icon: Settings },
+    ...(isAdmin ? [{ href: '/admin', label: 'Admin', icon: Settings }] : []),
   ]
 
   const CONNECTORS_ICONS: Record<string, string> = {

@@ -12,12 +12,19 @@ export async function GET(
 
   const { data: project } = await supabase
     .from('factory_projects')
-    .select('product_name, tagline, description, features, pricing, architecture, target_user')
+    .select('product_name, tagline, description, features, pricing, architecture, target_user, landing_page_html')
     .eq('id', projectId)
     .single()
 
   if (!project) {
     return new NextResponse('Project not found', { status: 404 })
+  }
+
+  // If we have stored HTML, serve it directly (preview === deployed)
+  if (project.landing_page_html) {
+    return new NextResponse(project.landing_page_html, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    })
   }
 
   const name = project.product_name || 'MyApp'
@@ -189,6 +196,9 @@ export async function GET(
   </div>
 </body>
 </html>`
+
+  // Save generated HTML so preview === deployed version
+  await supabase.from('factory_projects').update({ landing_page_html: html }).eq('id', projectId)
 
   return new NextResponse(html, {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
