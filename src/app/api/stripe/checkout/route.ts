@@ -1,4 +1,3 @@
-import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -19,20 +18,42 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
   }
 
-  // Check if Stripe is configured with real keys
   const stripeKey = process.env.STRIPE_SECRET_KEY
-  if (!stripeKey || stripeKey === 'sk_test_placeholder') {
+  if (!stripeKey || !stripeKey.startsWith('sk_')) {
     return NextResponse.json({
-      error: 'Stripe not configured yet',
-      message: `To enable payments, add your Stripe secret key to environment variables. Plan: ${priceInfo.name} ($${(priceInfo.amount / 100).toFixed(2)})`,
+      error: 'Stripe not configured',
+      message: 'Set a valid STRIPE_SECRET_KEY (starting with sk_) in environment variables.',
       setupRequired: true,
     }, { status: 503 })
   }
 
-  // When Stripe is configured, this would create a Checkout Session:
-  // const stripe = new Stripe(stripeKey)
-  // const session = await stripe.checkout.sessions.create({...})
-  // return NextResponse.json({ url: session.url })
+  // Dynamic import to avoid build errors when stripe isn't installed
+  try {
+    const Stripe = (await import('stripe')).default
+    const stripe = new Stripe(stripeKey)
 
-  return NextResponse.json({ error: 'Stripe integration pending real keys' }, { status: 503 })
+    const origin = req.headers.get('origin') || 'https://saas-factory-dashboard.vercel.app'
+
+    const sessionParams: any = {
+      line_items: [{
+        price_data: {
+          currency: 'usd',
+          product_data: { name: priceInfo.name },
+          unit_amount: priceInfo.amount,
+          ...(priceInfo.mode === 'subscription' ? { recurring: { interval: 'month' } } : {}),
+        },
+        quantity: 1,
+      }],
+      mode: priceInfo.mode,
+      success_url: `${origin}/dashboard?checkout=success&plan=${plan}`,
+      cancel_url: `${origin}/pricing?checkout=cancelled`,
+      metadata: { plan, credits: priceInfo.credits?.toString() || '' },
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams)
+    return NextResponse.json({ url: session.url })
+  } catch (err: any) {
+    console.error('Stripe checkout error:', err.message)
+    return NextResponse.json({ error: err.message || 'Stripe error' }, { status: 500 })
+  }
 }
