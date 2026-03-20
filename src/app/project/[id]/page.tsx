@@ -157,10 +157,24 @@ export default function ProjectPage() {
           <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 via-accent/5 to-green-500/5" />
           <div className="relative p-8 text-center">
             <span className="text-3xl">🎨</span>
-            <h3 className="text-xl font-bold mt-3 mb-2">Your SaaS preview is ready!</h3>
-            <p className="text-sm text-text-secondary mb-6 max-w-md mx-auto">Deploy it to your own accounts to go live and start earning.</p>
-            <Link href="/pricing"><GlowButton variant="green" size="lg"><Rocket className="h-5 w-5" /> Deploy to my accounts — $19/mo</GlowButton></Link>
+            <h3 className="text-xl font-bold mt-3 mb-2">Your Vax preview is ready!</h3>
+            <p className="text-sm text-text-secondary mb-6 max-w-md mx-auto">See exactly what your landing page looks like, then deploy to start earning.</p>
+            <div className="flex gap-3 justify-center">
+              <a href={`/api/preview/${id}/landing`} target="_blank" rel="noopener noreferrer">
+                <GlowButton variant="accent" size="lg"><ExternalLink className="h-5 w-5" /> Preview Landing Page</GlowButton>
+              </a>
+              <Link href="/pricing"><GlowButton variant="green" size="lg"><Rocket className="h-5 w-5" /> Deploy — $19/mo</GlowButton></Link>
+            </div>
           </div>
+        </div>
+      )}
+      {/* Preview button for ALL projects with features */}
+      {!isPreviewDone && !isBuilding && project.features && (
+        <div className="mx-8 mb-4">
+          <a href={`/api/preview/${id}/landing`} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-bg-card border border-border-default text-sm text-text-secondary hover:text-text-primary hover:border-border-bright transition-all">
+            <ExternalLink className="h-3.5 w-3.5" /> Preview Landing Page
+          </a>
         </div>
       )}
       {isFailed && (
