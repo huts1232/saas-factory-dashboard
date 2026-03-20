@@ -463,15 +463,8 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
       else { await logStep(projectId, s.num, s.name, 'running', `${s.name}...`); await new Promise(r => setTimeout(r, 500)); await logStep(projectId, s.num, s.name, 'success', `${s.name} complete`) }
     }
 
-    // BUG 6 FIX: Final status — verify URL before setting "live"
     const { data: final } = await db.from('factory_projects').select('vercel_url, github_url').eq('id', projectId).single()
-    let finalStatus = isFreeUser ? 'preview' : 'failed'
-
-    if (!isFreeUser && final?.vercel_url) {
-      await updateProject(projectId, { status: 'verifying', current_step: 11 })
-      const isLive = await verifyDeployment(final.vercel_url)
-      finalStatus = 'live'
-    }
+    const finalStatus = isFreeUser ? 'preview' : (final?.vercel_url ? 'live' : 'failed')
 
     await updateProject(projectId, {
       status: finalStatus, current_step: 11,
