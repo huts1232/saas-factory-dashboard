@@ -45,8 +45,9 @@ export async function POST(req: Request) {
         quantity: 1,
       }],
       mode: priceInfo.mode,
-      success_url: `${origin}/dashboard?checkout=success&plan=${plan}`,
+      success_url: `${origin}/dashboard?checkout=success&plan=${plan}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/pricing?checkout=cancelled`,
+      allow_promotion_codes: true,
       metadata: { plan, credits: priceInfo.credits?.toString() || '' },
     }
 

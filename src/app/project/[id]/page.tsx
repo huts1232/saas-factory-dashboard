@@ -160,16 +160,14 @@ export default function ProjectPage() {
             <h3 className="text-xl font-bold mt-3 mb-2">Your Vax preview is ready!</h3>
             <p className="text-sm text-text-secondary mb-6 max-w-md mx-auto">See exactly what your landing page looks like, then deploy to start earning.</p>
             <div className="flex gap-3 justify-center">
-              <a href={`/api/preview/${id}/landing`} target="_blank" rel="noopener noreferrer">
-                <GlowButton variant="accent" size="lg"><ExternalLink className="h-5 w-5" /> Preview Landing Page</GlowButton>
-              </a>
-              <Link href="/pricing"><GlowButton variant="green" size="lg"><Rocket className="h-5 w-5" /> Deploy — $19/mo</GlowButton></Link>
+              <Link href="/pricing"><GlowButton variant="green" size="lg"><Rocket className="h-5 w-5" /> Deploy to my accounts — $19/mo</GlowButton></Link>
             </div>
+            <p className="text-[10px] text-text-muted mt-3">Check the Preview tab to see your app mockups</p>
           </div>
         </div>
       )}
-      {/* Preview button for ALL projects with features */}
-      {!isPreviewDone && !isBuilding && project.features && (
+      {/* Preview Landing Page link — PAID users only (BUG 3 FIX) */}
+      {isPaid && !isBuilding && project.features && (
         <div className="mx-8 mb-4">
           <a href={`/api/preview/${id}/landing`} target="_blank" rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-bg-card border border-border-default text-sm text-text-secondary hover:text-text-primary hover:border-border-bright transition-all">

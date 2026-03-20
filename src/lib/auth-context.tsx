@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [showLoginModal, setShowLoginModal] = useState(false)
   const [pendingIdea, setPendingIdea] = useState<string | null>(null)
 
-  const supabase = createClient()
+  const [supabase] = useState(() => createClient())
 
   const load = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
