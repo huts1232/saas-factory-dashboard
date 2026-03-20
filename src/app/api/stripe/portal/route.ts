@@ -14,7 +14,7 @@ export async function POST(req: Request) {
 
     const Stripe = (await import('stripe')).default
     const stripe = new Stripe(stripeKey)
-    const origin = req.headers.get('origin') || 'https://saas-factory-dashboard.vercel.app'
+    const origin = req.headers.get('origin') || 'https://www.vaxario.com'
 
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,

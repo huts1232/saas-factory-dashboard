@@ -63,7 +63,7 @@ export default function SignupPage() {
             <span className="text-lg font-bold gradient-text">Vaxario</span>
           </div>
           <h1 className="text-2xl font-bold">Create account</h1>
-          <p className="text-sm text-text-secondary mt-1">Start gratis met bouwen</p>
+          <p className="text-sm text-text-secondary mt-1">Start building for free</p>
         </div>
 
         <button onClick={handleGoogle}
@@ -74,13 +74,13 @@ export default function SignupPage() {
 
         <div className="relative">
           <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border-default" /></div>
-          <div className="relative flex justify-center text-xs"><span className="bg-bg-primary px-2 text-text-muted">of</span></div>
+          <div className="relative flex justify-center text-xs"><span className="bg-bg-primary px-2 text-text-muted">or</span></div>
         </div>
 
         <form onSubmit={handleSignup} className="space-y-3">
           <div className="relative">
             <User className="absolute left-3 top-2.5 h-4 w-4 text-text-muted" />
-            <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Naam"
+            <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Name"
               className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-bg-card border border-border-default text-sm outline-none focus:border-accent/50" />
           </div>
           <div className="relative">
@@ -90,15 +90,15 @@ export default function SignupPage() {
           </div>
           <div className="relative">
             <Lock className="absolute left-3 top-2.5 h-4 w-4 text-text-muted" />
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Wachtwoord (min 6 tekens)" required minLength={6}
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password (min 6 characters)" required minLength={6}
               className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-bg-card border border-border-default text-sm outline-none focus:border-accent/50" />
           </div>
           {error && <p className="text-xs text-red-400">{error}</p>}
-          <GlowButton type="submit" variant="green" loading={loading} className="w-full">Account aanmaken</GlowButton>
+          <GlowButton type="submit" variant="green" loading={loading} className="w-full">Create account</GlowButton>
         </form>
 
         <p className="text-center text-sm text-text-muted">
-          Al een account? <Link href="/login" className="text-accent hover:underline">Log in</Link>
+          Already have an account? <Link href="/login" className="text-accent hover:underline">Log in</Link>
         </p>
       </div>
     </div>

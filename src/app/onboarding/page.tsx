@@ -7,10 +7,10 @@ import { GlowButton } from '@/components/ui/GlowButton'
 import { Zap, Check, ArrowRight, Sparkles } from 'lucide-react'
 
 const CONNECTOR_STEPS = [
-  { service: 'anthropic', name: 'Anthropic', desc: 'Claude API key voor AI-generatie', placeholder: 'sk-ant-...' },
-  { service: 'github', name: 'GitHub', desc: 'Personal Access Token voor code repos', placeholder: 'ghp_...' },
-  { service: 'vercel', name: 'Vercel', desc: 'API token voor deployments', placeholder: 'vcp_...' },
-  { service: 'supabase', name: 'Supabase', desc: 'Access token voor database', placeholder: 'sbp_...' },
+  { service: 'anthropic', name: 'Anthropic', desc: 'Claude API key for AI generation', placeholder: 'sk-ant-...' },
+  { service: 'github', name: 'GitHub', desc: 'Personal Access Token for code repos', placeholder: 'ghp_...' },
+  { service: 'vercel', name: 'Vercel', desc: 'API token for deployments', placeholder: 'vcp_...' },
+  { service: 'supabase', name: 'Supabase', desc: 'Access token for database', placeholder: 'sbp_...' },
 ]
 
 export default function OnboardingPage() {
@@ -67,7 +67,7 @@ export default function OnboardingPage() {
                 </div>
                 <h1 className="text-2xl font-bold mb-2">Welcome to Vaxario!</h1>
                 <p className="text-text-secondary text-sm mb-6">
-                  Laten we je API keys instellen zodat je meteen kunt beginnen met bouwen.
+                  Let&apos;s set up your API keys so you can start building right away.
                 </p>
                 <GlowButton variant="accent" onClick={() => setStep(1)} className="w-full">
                   Let&apos;s go <ArrowRight className="h-4 w-4" />
@@ -103,7 +103,7 @@ export default function OnboardingPage() {
                 </div>
                 <h1 className="text-2xl font-bold mb-2">All set! 🎉</h1>
                 <p className="text-text-secondary text-sm mb-2">
-                  {Object.values(results).filter(Boolean).length}/{CONNECTOR_STEPS.length} connectors verbonden
+                  {Object.values(results).filter(Boolean).length}/{CONNECTOR_STEPS.length} connectors connected
                 </p>
                 <div className="flex flex-wrap gap-2 justify-center mb-6">
                   {CONNECTOR_STEPS.map(s => (

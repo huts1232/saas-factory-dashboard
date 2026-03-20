@@ -116,11 +116,12 @@ async function getUserPlan(userId: string | null): Promise<'free' | 'starter' | 
   return (data?.plan as any) || 'free'
 }
 
-// ===== BUG 5 FIX: CODE GEN WITH SAFE SUPABASE PATTERN =====
+// ===== CODE GEN WITH SAFE SUPABASE PATTERN =====
 async function generateFileCode(features: any, arch: any, filePath: string, fileDesc: string, allPaths: string[]): Promise<string> {
-  const system = `You are a senior Next.js 14 developer. Rules:
+  const system = `You are a senior Next.js 14 developer. Generate a COMPLETE, working file.
+
+MANDATORY RULES:
 - Use Next.js 14 App Router, TypeScript, Tailwind CSS
-- Generate COMPLETE working code
 - CRITICAL: Every file that uses Supabase MUST start with 'use client' and create the client inside the component with useMemo:
   'use client'
   import { useMemo } from 'react'
@@ -129,9 +130,14 @@ async function generateFileCode(features: any, arch: any, filePath: string, file
   const supabase = useMemo(() => createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!), [])
 - NEVER create Supabase client at module level
 - NEVER import from @/components or @/lib — write everything inline
-- Every button must have an onClick handler
-- Every form must submit to Supabase
-- Include loading states and empty states
+- Every button MUST have an onClick handler
+- Every form MUST have an onSubmit handler with e.preventDefault()
+- Include loading states (useState + Spinner)
+- Include empty states
+- Include error handling (try/catch)
+- NO TODO comments — write real code
+- NO placeholder data — use real Supabase queries
+- NO imports from non-existent files
 - Output ONLY the file content. No markdown, no explanation.`
 
   const dbSchema = arch.database?.tables?.map((t: any) => `${t.name}(${t.columns?.map((c: any) => c.name).join(', ')})`).join('; ') || ''
@@ -223,14 +229,20 @@ async function setVercelEnvVars(projectName: string) {
   }
 }
 
-// BUG 6 FIX: Verify URL returns 200
+// Verify URL returns 200 with real content
 async function verifyDeployment(url: string, maxAttempts = 10): Promise<boolean> {
   for (let i = 0; i < maxAttempts; i++) {
     try {
       const res = await fetch(url, { redirect: 'follow' })
-      if (res.ok) return true
+      if (res.ok) {
+        const body = await res.text()
+        // Must have real content, not error pages
+        if (body.length > 500 && !body.toLowerCase().includes('application error') && !body.toLowerCase().includes('this page could not be found')) {
+          return true
+        }
+      }
     } catch {}
-    await new Promise(r => setTimeout(r, 15000)) // Wait 15s between checks
+    await new Promise(r => setTimeout(r, 15000))
   }
   return false
 }
@@ -363,16 +375,21 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
           allFiles.push({ path: 'src/app/globals.css', content: '@tailwind base;\n@tailwind components;\n@tailwind utilities;' })
           allFiles.push({ path: '.gitignore', content: 'node_modules/\n.next/\n.env.local' })
 
-          // Static layout (no Claude call, no Supabase)
+          // Static layout + Supabase helper
           const tagline = proj.tagline || ''
           const desc = (proj.description || proj.idea || '').replace(/"/g, '\\"').slice(0, 150)
           allFiles.push({ path: 'src/app/layout.tsx', content: `import type { Metadata } from "next"\nimport "./globals.css"\n\nexport const metadata: Metadata = {\n  title: "${productName} — ${tagline.replace(/"/g, '\\"')}",\n  description: "${desc}",\n}\n\nexport default function RootLayout({ children }: { children: React.ReactNode }) {\n  return <html lang="en"><body className="min-h-screen bg-gray-50 antialiased">{children}</body></html>\n}` })
+          allFiles.push({ path: 'src/lib/supabase.ts', content: `import { createClient } from '@supabase/supabase-js'\n\nexport function getSupabase() {\n  return createClient(\n    process.env.NEXT_PUBLIC_SUPABASE_URL!,\n    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!\n  )\n}\n` })
 
-          // Generate 2 pages via Claude API
+          // Generate pages via Claude API
           const allPaths = (arch.fileStructure || []).slice(0, 10).map((f: any) => f.path)
           for (const pageInfo of [
-            { path: 'app/page.tsx', desc: `Landing page for ${productName}: hero, features, pricing, CTA, footer` },
-            { path: 'app/dashboard/page.tsx', desc: `Dashboard for ${productName}: stats cards, data table, sidebar` },
+            { path: 'app/page.tsx', desc: `Landing page for ${productName}: hero section with gradient, product name "${productName}" and tagline, features grid, pricing table, testimonials, CTA, footer. FULL page, not a stub.` },
+            { path: 'app/dashboard/page.tsx', desc: `Dashboard for ${productName}: sidebar with navigation (Home, features, Settings), stats cards with real data from Supabase, data table, welcome header. Include 'use client' and Supabase queries.` },
+            { path: 'app/login/page.tsx', desc: `Login page for ${productName}: email + password form, "Sign in with Google" button (placeholder), Supabase auth signInWithPassword, redirect to /dashboard on success. Centered card layout.` },
+            { path: 'app/signup/page.tsx', desc: `Signup page for ${productName}: name, email, password form, Supabase auth signUp, link to /login. Centered card layout.` },
+            { path: 'app/settings/page.tsx', desc: `Settings page for ${productName}: user profile section (name, email from Supabase auth), plan info, danger zone (delete account). 'use client' with Supabase.` },
+            { path: 'app/admin/page.tsx', desc: `Admin panel for ${productName}: users table from Supabase, stats cards (total users, revenue), recent activity. Protected with admin check. 'use client' with Supabase.` },
           ]) {
             try {
               await logStep(projectId, 5, 'GitHub Push', 'running', `Generating ${pageInfo.path}...`)

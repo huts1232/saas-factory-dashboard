@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,12 +29,27 @@ export async function POST(req: Request) {
     }, { status: 503 })
   }
 
-  // Dynamic import to avoid build errors when stripe isn't installed
+  // Get current user email for Stripe customer matching
+  const cookieStore = await cookies()
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() { return cookieStore.getAll() },
+        setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
+          try { cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options)) } catch {}
+        },
+      },
+    }
+  )
+  const { data: { user } } = await supabase.auth.getUser()
+
   try {
     const Stripe = (await import('stripe')).default
     const stripe = new Stripe(stripeKey)
 
-    const origin = req.headers.get('origin') || 'https://saas-factory-dashboard.vercel.app'
+    const origin = req.headers.get('origin') || 'https://www.vaxario.com'
 
     const sessionParams: any = {
       line_items: [{
@@ -45,10 +62,11 @@ export async function POST(req: Request) {
         quantity: 1,
       }],
       mode: priceInfo.mode,
-      success_url: `${origin}/dashboard?checkout=success&plan=${plan}&session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${origin}/dashboard?upgraded=true&plan=${plan}`,
       cancel_url: `${origin}/pricing?checkout=cancelled`,
       allow_promotion_codes: true,
       metadata: { plan, credits: priceInfo.credits?.toString() || '' },
+      ...(user?.email ? { customer_email: user.email } : {}),
     }
 
     const session = await stripe.checkout.sessions.create(sessionParams)

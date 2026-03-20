@@ -48,7 +48,7 @@ export function Sidebar() {
 
   const NAV = [
     { href: '/', label: 'Home', icon: Home },
-    { href: '/dashboard', label: 'All Projects', icon: FolderOpen },
+    { href: '/dashboard', label: 'My Vaxes', icon: FolderOpen },
     { href: '/templates', label: 'Templates', icon: BookTemplate },
     { href: '/settings', label: 'Settings', icon: Settings },
     ...(isAdmin ? [{ href: '/admin', label: 'Admin', icon: Settings }] : []),
@@ -105,7 +105,7 @@ export function Sidebar() {
         })}
 
         <Link href="/new" className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-accent hover:bg-accent/5 transition-all mt-2">
-          <Plus className="h-4 w-4" /> New Project
+          <Plus className="h-4 w-4" /> Create a new Vax
         </Link>
 
         {/* Recents */}

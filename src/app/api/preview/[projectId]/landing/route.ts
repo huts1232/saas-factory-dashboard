@@ -192,7 +192,7 @@ export async function GET(
 
   <!-- Built with Vaxario badge -->
   <div class="fixed bottom-4 right-4 px-3 py-1.5 bg-black/80 text-white/60 text-xs rounded-full backdrop-blur-sm">
-    Built with <a href="https://saas-factory-dashboard.vercel.app" class="text-white/90 font-medium hover:text-white">Vaxario</a>
+    Built with <a href="https://www.vaxario.com" class="text-white/90 font-medium hover:text-white">Vaxario</a>
   </div>
 </body>
 </html>`

@@ -18,10 +18,10 @@ export function LoginModal() {
   const [loading, setLoading] = useState(false)
 
   async function handleGoogle() {
-    const redirectPath = pendingIdea ? `/new?idea=${encodeURIComponent(pendingIdea)}` : '/dashboard'
+    const finalRedirect = pendingIdea ? `/new?idea=${encodeURIComponent(pendingIdea)}` : '/dashboard'
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}${redirectPath}` },
+      options: { redirectTo: `${window.location.origin}/api/auth/callback?redirect=${encodeURIComponent(finalRedirect)}` },
     })
   }
 

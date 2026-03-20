@@ -7,10 +7,10 @@ import { ArrowRight, Sparkles } from 'lucide-react'
 import { useUser } from '@/lib/auth-context'
 
 const EXAMPLES = [
-  'AI Factuur Tool',
+  'AI Invoice Tool',
   'Recipe Planner',
   'Habit Tracker',
-  'CRM voor Freelancers',
+  'CRM for Freelancers',
 ]
 
 export function HeroInput() {
@@ -33,9 +33,9 @@ export function HeroInput() {
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
         className="text-center space-y-3">
         <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-          Wat wil je <span className="gradient-text">bouwen</span>?
+          What do you want to <span className="gradient-text">build</span>?
         </h1>
-        <p className="text-text-secondary text-lg">Beschrijf je idee. Claude ontwerpt, bouwt en deployt je SaaS.</p>
+        <p className="text-text-secondary text-lg">Describe your idea. Vaxario designs, builds, and deploys it.</p>
       </motion.div>
 
       <motion.form initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2 }}
@@ -45,7 +45,7 @@ export function HeroInput() {
           <div className="relative flex items-center bg-bg-card border border-border-default rounded-xl group-focus-within:border-accent/50 transition-colors">
             <Sparkles className="ml-4 h-5 w-5 text-text-muted" />
             <input type="text" value={idea} onChange={(e) => setIdea(e.target.value)}
-              placeholder="Beschrijf je SaaS idee..."
+              placeholder="Describe your AI tool idea..."
               className="flex-1 bg-transparent px-4 py-4 text-lg text-text-primary placeholder:text-text-muted outline-none" autoFocus />
             <button type="submit" disabled={!idea.trim()}
               className="m-2 px-4 py-2 rounded-lg bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center gap-2 text-sm font-medium">

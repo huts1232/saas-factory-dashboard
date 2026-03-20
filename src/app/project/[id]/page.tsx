@@ -82,7 +82,7 @@ export default function ProjectPage() {
   }
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="h-6 w-6 animate-spin text-accent" /></div>
-  if (!project) return <div className="flex items-center justify-center min-h-screen text-text-muted">Project niet gevonden</div>
+  if (!project) return <div className="flex items-center justify-center min-h-screen text-text-muted">Project not found</div>
 
   const isBuilding = !['live', 'failed', 'pending', 'preview'].includes(project.status)
   const isLive = project.status === 'live'

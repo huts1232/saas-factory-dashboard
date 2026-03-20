@@ -47,15 +47,15 @@ export function ProjectGrid({ projects }: { projects: any[] }) {
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Inbox className="h-12 w-12 text-text-muted mb-4" />
-          <h3 className="text-lg font-semibold text-text-secondary mb-1">Geen projecten</h3>
+          <h3 className="text-lg font-semibold text-text-secondary mb-1">No Vaxes yet</h3>
           <p className="text-sm text-text-muted mb-4">
-            {filter === 'all' ? 'Start je eerste SaaS!' : `Geen ${filter} projecten.`}
+            {filter === 'all' ? 'Create your first Vax!' : `No ${filter} vaxes.`}
           </p>
           <Link
             href="/new"
             className="px-4 py-2 rounded-lg bg-accent/10 text-accent border border-accent/30 text-sm font-medium hover:bg-accent/20 transition-all"
           >
-            Nieuw project
+            Create a new Vax
           </Link>
         </div>
       ) : (

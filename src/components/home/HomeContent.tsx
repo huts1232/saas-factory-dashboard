@@ -19,7 +19,7 @@ export function HomeContent({ projectCount }: { projectCount: number }) {
       </p>
       <HeroInput />
       <div className="mt-12 flex gap-6 text-xs text-text-muted">
-        <span><span className="font-mono text-accent">{projectCount}</span> SaaS-en gebouwd</span>
+        <span><span className="font-mono text-accent">{projectCount}</span> Vaxes built</span>
         <span><span className="font-mono text-accent">{credits}</span> credits</span>
       </div>
     </div>

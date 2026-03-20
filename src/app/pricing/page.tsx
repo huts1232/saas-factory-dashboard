@@ -60,7 +60,7 @@ export default function PricingPage() {
     <div className="p-8 max-w-5xl mx-auto">
       <div className="text-center mb-10">
         <h1 className="text-3xl font-bold">Pricing</h1>
-        <p className="text-text-secondary mt-2">Start gratis. Upgrade wanneer je klaar bent om te deployen.</p>
+        <p className="text-text-secondary mt-2">Start free. Upgrade when you&apos;re ready to deploy.</p>
       </div>
 
       {/* Plans */}
@@ -107,8 +107,8 @@ export default function PricingPage() {
 
       {/* Credit packs */}
       <div className="text-center mb-6">
-        <h2 className="text-xl font-bold">Credits bijkopen</h2>
-        <p className="text-sm text-text-secondary mt-1">Extra credits zonder abonnement te wijzigen</p>
+        <h2 className="text-xl font-bold">Buy extra credits</h2>
+        <p className="text-sm text-text-secondary mt-1">Top up your credits without changing your plan</p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto">
         {CREDIT_PACKS.map((pack) => (

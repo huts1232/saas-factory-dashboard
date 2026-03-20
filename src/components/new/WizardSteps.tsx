@@ -7,14 +7,14 @@ import { GlowButton } from '@/components/ui/GlowButton'
 import { ArrowLeft, ArrowRight, Rocket, Loader2, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const STEPS = ['Idee', 'Features', 'Config', 'Bevestiging']
+const STEPS = ['Idea', 'Audience', 'Config', 'Confirm']
 
 const AUDIENCES = ['Developers', 'Small Business', 'Freelancers', 'Enterprise', 'Consumers']
 const PRICING_MODELS = [
-  { value: 'freemium', label: 'Freemium', desc: 'Free basis + betaald extra' },
-  { value: 'subscription', label: 'Subscription', desc: 'Maandelijks abonnement' },
-  { value: 'usage-based', label: 'Usage-based', desc: 'Betaal per gebruik' },
-  { value: 'free', label: 'Free', desc: 'Helemaal gratis' },
+  { value: 'freemium', label: 'Freemium', desc: 'Free tier + paid extras' },
+  { value: 'subscription', label: 'Subscription', desc: 'Monthly subscription' },
+  { value: 'usage-based', label: 'Usage-based', desc: 'Pay per use' },
+  { value: 'free', label: 'Free', desc: 'Completely free' },
 ]
 
 interface WizardProps {
@@ -109,21 +109,21 @@ export function WizardSteps({ initialIdea }: WizardProps) {
         >
           {step === 0 && (
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold">Verfijn je idee</h2>
-              <p className="text-sm text-text-secondary">Wat wil je bouwen? Wees zo specifiek als je wilt.</p>
+              <h2 className="text-lg font-semibold">Refine your idea</h2>
+              <p className="text-sm text-text-secondary">What do you want to build? Be as specific as you like.</p>
               <textarea
                 value={idea}
                 onChange={(e) => setIdea(e.target.value)}
                 className="w-full h-24 bg-bg-elevated border border-border-default rounded-lg px-4 py-3 text-text-primary placeholder:text-text-muted outline-none focus:border-accent/50 resize-none"
-                placeholder="Beschrijf je SaaS idee..."
+                placeholder="Describe your Vax idea..."
               />
               <div>
-                <label className="text-xs text-text-muted block mb-1">Extra feedback (optioneel)</label>
+                <label className="text-xs text-text-muted block mb-1">Extra feedback (optional)</label>
                 <input
                   value={ideaFeedback}
                   onChange={(e) => setIdeaFeedback(e.target.value)}
                   className="w-full bg-bg-elevated border border-border-default rounded-lg px-4 py-2.5 text-sm text-text-primary placeholder:text-text-muted outline-none focus:border-accent/50"
-                  placeholder="Focus op X, doelgroep is Y..."
+                  placeholder="Focus on X, target audience is Y..."
                 />
               </div>
             </div>
@@ -131,8 +131,8 @@ export function WizardSteps({ initialIdea }: WizardProps) {
 
           {step === 1 && (
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold">Doelgroep</h2>
-              <p className="text-sm text-text-secondary">Voor wie bouw je dit?</p>
+              <h2 className="text-lg font-semibold">Target Audience</h2>
+              <p className="text-sm text-text-secondary">Who are you building this for?</p>
               <div className="grid grid-cols-2 gap-2">
                 {AUDIENCES.map((a) => (
                   <button
@@ -151,7 +151,7 @@ export function WizardSteps({ initialIdea }: WizardProps) {
                 <input
                   value={AUDIENCES.includes(targetUser) ? '' : targetUser}
                   onChange={(e) => setTargetUser(e.target.value)}
-                  placeholder="Anders..."
+                  placeholder="Other..."
                   className="px-4 py-3 rounded-lg border border-border-default bg-bg-elevated text-sm text-text-primary placeholder:text-text-muted outline-none focus:border-accent/50"
                 />
               </div>
@@ -161,7 +161,7 @@ export function WizardSteps({ initialIdea }: WizardProps) {
           {step === 2 && (
             <div className="space-y-6">
               <div className="space-y-3">
-                <h2 className="text-lg font-semibold">Configuratie</h2>
+                <h2 className="text-lg font-semibold">Configuration</h2>
                 <div className="space-y-2">
                   {PRICING_MODELS.map((p) => (
                     <button
@@ -185,11 +185,11 @@ export function WizardSteps({ initialIdea }: WizardProps) {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm text-text-secondary">Custom domein (optioneel)</label>
+                <label className="text-sm text-text-secondary">Custom domain (optional)</label>
                 <input
                   value={domain}
                   onChange={(e) => setDomain(e.target.value)}
-                  placeholder="mijnapp.nl"
+                  placeholder="myapp.com"
                   className="w-full bg-bg-elevated border border-border-default rounded-lg px-4 py-2.5 text-sm text-text-primary placeholder:text-text-muted outline-none focus:border-accent/50"
                 />
               </div>
@@ -207,22 +207,22 @@ export function WizardSteps({ initialIdea }: WizardProps) {
                     skipReview ? 'translate-x-0.5' : 'translate-x-[18px]'
                   )} />
                 </div>
-                <span className="text-sm text-text-secondary">Review loop (Claude reviewt en fixt automatisch)</span>
+                <span className="text-sm text-text-secondary">Review loop (Claude reviews and auto-fixes)</span>
               </label>
             </div>
           )}
 
           {step === 3 && (
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold">Klaar om te bouwen!</h2>
+              <h2 className="text-lg font-semibold">Ready to build!</h2>
               <div className="space-y-3 bg-bg-elevated rounded-lg p-4 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-text-muted">Idee</span>
+                  <span className="text-text-muted">Idea</span>
                   <span className="text-text-primary text-right max-w-xs truncate">{idea}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-text-muted">Doelgroep</span>
-                  <span className="text-text-primary">{targetUser || 'Claude kiest'}</span>
+                  <span className="text-text-muted">Audience</span>
+                  <span className="text-text-primary">{targetUser || 'Claude decides'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-text-muted">Pricing</span>
@@ -230,17 +230,17 @@ export function WizardSteps({ initialIdea }: WizardProps) {
                 </div>
                 {domain && (
                   <div className="flex justify-between">
-                    <span className="text-text-muted">Domein</span>
+                    <span className="text-text-muted">Domain</span>
                     <span className="text-text-primary">{domain}</span>
                   </div>
                 )}
                 <div className="flex justify-between">
                   <span className="text-text-muted">Review loop</span>
-                  <span className="text-text-primary">{skipReview ? 'Uit' : 'Aan'}</span>
+                  <span className="text-text-primary">{skipReview ? 'Off' : 'On'}</span>
                 </div>
               </div>
               <p className="text-xs text-text-muted">
-                Geschatte tijd: 10-20 minuten &middot; Geschatte kosten: ~300K tokens (~$1)
+                Estimated time: 10-20 minutes &middot; Estimated cost: ~300K tokens (~$1)
               </p>
             </div>
           )}
@@ -254,7 +254,7 @@ export function WizardSteps({ initialIdea }: WizardProps) {
           onClick={() => setStep(Math.max(0, step - 1))}
           disabled={step === 0}
         >
-          <ArrowLeft className="h-4 w-4" /> Vorige
+          <ArrowLeft className="h-4 w-4" /> Previous
         </GlowButton>
 
         {step < 3 ? (
@@ -263,7 +263,7 @@ export function WizardSteps({ initialIdea }: WizardProps) {
             onClick={() => setStep(step + 1)}
             disabled={step === 0 && !idea.trim()}
           >
-            Volgende <ArrowRight className="h-4 w-4" />
+            Next <ArrowRight className="h-4 w-4" />
           </GlowButton>
         ) : (
           <GlowButton
@@ -272,7 +272,7 @@ export function WizardSteps({ initialIdea }: WizardProps) {
             loading={submitting}
             disabled={submitting || !idea.trim()}
           >
-            <Rocket className="h-4 w-4" /> Start bouwen
+            <Rocket className="h-4 w-4" /> Start building
           </GlowButton>
         )}
       </div>
