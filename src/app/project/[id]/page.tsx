@@ -49,6 +49,13 @@ export default function ProjectPage() {
 
   useEffect(() => { loadProject() }, [loadProject])
 
+  // Auto-switch to preview tab for free users with completed builds
+  useEffect(() => {
+    if (project && isFree && (project.status === 'preview' || project.current_step >= 2) && project.features) {
+      setTab('preview')
+    }
+  }, [project?.status, project?.current_step, isFree])
+
   useEffect(() => {
     const channel = supabase.channel(`project-${id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'factory_projects', filter: `id=eq.${id}` }, (payload) => setProject(payload.new))
@@ -171,7 +178,7 @@ export default function ProjectPage() {
 
         <div className="lg:col-span-2">
           <div className="flex gap-1 mb-4 bg-bg-secondary rounded-lg p-1 w-fit">
-            {(['overview', ...(hasArchitecture ? ['preview'] : []), ...(isPaid && (isBuilding || isLive || isFailed) ? ['logs'] : [])] as const).map(t => (
+            {(['overview', 'preview', ...(isPaid && (isBuilding || isLive || isFailed) ? ['logs'] : [])] as const).map(t => (
               <button key={t} onClick={() => setTab(t as any)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all capitalize ${tab === t ? 'bg-bg-elevated text-text-primary' : 'text-text-muted hover:text-text-secondary'}`}>{t}</button>
             ))}
           </div>
