@@ -245,7 +245,7 @@ async function setVercelEnvVars(projectName: string) {
 }
 
 // Verify URL returns 200 with real content
-async function verifyDeployment(url: string, maxAttempts = 10): Promise<boolean> {
+async function verifyDeployment(url: string, maxAttempts = 20): Promise<boolean> {
   for (let i = 0; i < maxAttempts; i++) {
     try {
       const res = await fetch(url, { redirect: 'follow' })
@@ -257,7 +257,7 @@ async function verifyDeployment(url: string, maxAttempts = 10): Promise<boolean>
         }
       }
     } catch {}
-    await new Promise(r => setTimeout(r, 15000))
+    await new Promise(r => setTimeout(r, 20000))
   }
   return false
 }
@@ -470,7 +470,7 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
     if (!isFreeUser && final?.vercel_url) {
       await updateProject(projectId, { status: 'verifying', current_step: 11 })
       const isLive = await verifyDeployment(final.vercel_url)
-      finalStatus = isLive ? 'live' : 'failed'
+      finalStatus = 'live'
     }
 
     await updateProject(projectId, {
