@@ -396,22 +396,28 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
           allFiles.push({ path: 'src/app/layout.tsx', content: `import type { Metadata } from "next"\nimport "./globals.css"\n\nexport const metadata: Metadata = {\n  title: "${productName} — ${tagline.replace(/"/g, '\\"')}",\n  description: "${desc}",\n}\n\nexport default function RootLayout({ children }: { children: React.ReactNode }) {\n  return <html lang="en"><body className="min-h-screen bg-gray-50 antialiased">{children}</body></html>\n}` })
           allFiles.push({ path: 'src/lib/supabase.ts', content: `import { createClient } from '@supabase/supabase-js'\n\nexport function getSupabase() {\n  return createClient(\n    process.env.NEXT_PUBLIC_SUPABASE_URL!,\n    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!\n  )\n}\n` })
 
-          // Generate pages via Claude API
+          // Generate pages via Claude API (parallel)
           const allPaths = (arch.fileStructure || []).slice(0, 10).map((f: any) => f.path)
-          for (const pageInfo of [
+          const pages = [
             { path: 'app/page.tsx', desc: `Landing page for ${productName}: hero section with gradient, product name "${productName}" and tagline, features grid, pricing table, testimonials, CTA, footer. FULL page, not a stub.` },
             { path: 'app/dashboard/page.tsx', desc: `Dashboard for ${productName}: sidebar with navigation (Home, features, Settings), stats cards with real data from Supabase, data table, welcome header. Include 'use client' and Supabase queries.` },
             { path: 'app/login/page.tsx', desc: `Login page for ${productName}: email + password form, "Sign in with Google" button (placeholder), Supabase auth signInWithPassword, redirect to /dashboard on success. Centered card layout.` },
             { path: 'app/signup/page.tsx', desc: `Signup page for ${productName}: name, email, password form, Supabase auth signUp, link to /login. Centered card layout.` },
             { path: 'app/settings/page.tsx', desc: `Settings page for ${productName}: user profile section (name, email from Supabase auth), plan info, danger zone (delete account). 'use client' with Supabase.` },
             { path: 'app/admin/page.tsx', desc: `Admin panel for ${productName}: users table from Supabase, stats cards (total users, revenue), recent activity. Protected with admin check. 'use client' with Supabase.` },
-          ]) {
-            try {
-              await logStep(projectId, 5, 'GitHub Push', 'running', `Generating ${pageInfo.path}...`)
-              const code = await generateFileCode(features, arch, pageInfo.path, pageInfo.desc, allPaths)
+          ]
+          await logStep(projectId, 5, 'GitHub Push', 'running', `Generating ${pages.length} pages in parallel...`)
+          const results = await Promise.allSettled(
+            pages.map(pageInfo => generateFileCode(features, arch, pageInfo.path, pageInfo.desc, allPaths))
+          )
+          for (let i = 0; i < pages.length; i++) {
+            const result = results[i]
+            if (result.status === 'fulfilled') {
               totalTokens += 2000; totalCalls++
-              allFiles.push({ path: `src/${pageInfo.path}`, content: code })
-            } catch (err: any) { console.error(`Failed: ${pageInfo.path}:`, err.message) }
+              allFiles.push({ path: `src/${pages[i].path}`, content: result.value })
+            } else {
+              console.error(`Failed: ${pages[i].path}:`, result.reason?.message)
+            }
           }
 
           // Atomic push
