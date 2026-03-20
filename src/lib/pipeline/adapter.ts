@@ -147,10 +147,22 @@ MANDATORY RULES:
   return text.replace(/^```(?:typescript|tsx|ts|javascript|jsx)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
 }
 
-// ===== GITHUB: ATOMIC PUSH (BUG 2 FIX) =====
+// ===== FETCH WITH TIMEOUT =====
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 30000): Promise<Response> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal })
+    return res
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+// ===== GITHUB: ATOMIC PUSH =====
 async function createGitHubRepo(repoName: string): Promise<{ url: string }> {
   const c = getConfig()
-  const res = await fetch('https://api.github.com/user/repos', {
+  const res = await fetchWithTimeout('https://api.github.com/user/repos', {
     method: 'POST',
     headers: { Authorization: `token ${c.githubToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: repoName, private: false, auto_init: true }),
@@ -171,41 +183,45 @@ async function pushAllFilesToGitHub(repoName: string, files: Array<{ path: strin
   const headers = { Authorization: `token ${c.githubToken}`, 'Content-Type': 'application/json' }
   const base = `https://api.github.com/repos/${c.githubOwner}/${repoName}`
 
-  const refRes = await fetch(`${base}/git/ref/heads/main`, { headers })
+  const refRes = await fetchWithTimeout(`${base}/git/ref/heads/main`, { headers })
   if (!refRes.ok) throw new Error(`Failed to get ref: ${await refRes.text()}`)
   const latestSha = (await refRes.json()).object.sha
-  const commitData = await (await fetch(`${base}/git/commits/${latestSha}`, { headers })).json()
+  const commitData = await (await fetchWithTimeout(`${base}/git/commits/${latestSha}`, { headers })).json()
   const baseTreeSha = commitData.tree.sha
 
   const tree: Array<{ path: string; mode: string; type: string; sha: string }> = []
   for (const file of files) {
-    const blobRes = await fetch(`${base}/git/blobs`, {
-      method: 'POST', headers,
-      body: JSON.stringify({ content: Buffer.from(file.content).toString('base64'), encoding: 'base64' }),
-    })
-    if (!blobRes.ok) { console.error(`Blob failed for ${file.path}`); continue }
-    tree.push({ path: file.path, mode: '100644', type: 'blob', sha: (await blobRes.json()).sha })
+    try {
+      const blobRes = await fetchWithTimeout(`${base}/git/blobs`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ content: Buffer.from(file.content).toString('base64'), encoding: 'base64' }),
+      })
+      if (!blobRes.ok) { console.error(`Blob failed for ${file.path}: ${blobRes.status}`); continue }
+      tree.push({ path: file.path, mode: '100644', type: 'blob', sha: (await blobRes.json()).sha })
+    } catch (err: any) {
+      console.error(`Blob timeout/error for ${file.path}: ${err.message}`)
+    }
   }
 
-  const newTree = await (await fetch(`${base}/git/trees`, { method: 'POST', headers, body: JSON.stringify({ base_tree: baseTreeSha, tree }) })).json()
-  const newCommit = await (await fetch(`${base}/git/commits`, { method: 'POST', headers, body: JSON.stringify({ message, tree: newTree.sha, parents: [latestSha] }) })).json()
-  await fetch(`${base}/git/refs/heads/main`, { method: 'PATCH', headers, body: JSON.stringify({ sha: newCommit.sha }) })
+  if (tree.length === 0) throw new Error('No files were successfully uploaded to GitHub')
+
+  const newTree = await (await fetchWithTimeout(`${base}/git/trees`, { method: 'POST', headers, body: JSON.stringify({ base_tree: baseTreeSha, tree }) })).json()
+  const newCommit = await (await fetchWithTimeout(`${base}/git/commits`, { method: 'POST', headers, body: JSON.stringify({ message, tree: newTree.sha, parents: [latestSha] }) })).json()
+  await fetchWithTimeout(`${base}/git/refs/heads/main`, { method: 'PATCH', headers, body: JSON.stringify({ sha: newCommit.sha }) })
 }
 
-// ===== VERCEL WITH FALLBACK (BUG 8 FIX) =====
+// ===== VERCEL =====
 async function createVercelProject(projectName: string, repoName: string): Promise<{ url: string }> {
   const c = getConfig()
-  // Check if exists
-  const check = await fetch(`https://api.vercel.com/v9/projects/${projectName}`, { headers: { Authorization: `Bearer ${c.vercelToken}` } })
+  const check = await fetchWithTimeout(`https://api.vercel.com/v9/projects/${projectName}`, { headers: { Authorization: `Bearer ${c.vercelToken}` } })
   if (check.ok) return { url: `https://${projectName}.vercel.app` }
 
-  // Create with GitHub link, fallback to standalone
-  let res = await fetch('https://api.vercel.com/v10/projects', {
+  let res = await fetchWithTimeout('https://api.vercel.com/v10/projects', {
     method: 'POST', headers: { Authorization: `Bearer ${c.vercelToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: projectName, framework: 'nextjs', gitRepository: { type: 'github', repo: `${c.githubOwner}/${repoName}` } }),
   })
   if (!res.ok) {
-    res = await fetch('https://api.vercel.com/v10/projects', {
+    res = await fetchWithTimeout('https://api.vercel.com/v10/projects', {
       method: 'POST', headers: { Authorization: `Bearer ${c.vercelToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: projectName, framework: 'nextjs' }),
     })
@@ -214,7 +230,6 @@ async function createVercelProject(projectName: string, repoName: string): Promi
   return { url: `https://${projectName}.vercel.app` }
 }
 
-// BUG 8 FIX: Always set env vars
 async function setVercelEnvVars(projectName: string) {
   const c = getConfig()
   const vars = [
@@ -222,10 +237,10 @@ async function setVercelEnvVars(projectName: string) {
     { key: 'NEXT_PUBLIC_SUPABASE_ANON_KEY', value: c.supabaseAnonKey },
   ]
   for (const v of vars) {
-    await fetch(`https://api.vercel.com/v10/projects/${projectName}/env`, {
+    await fetchWithTimeout(`https://api.vercel.com/v10/projects/${projectName}/env`, {
       method: 'POST', headers: { Authorization: `Bearer ${c.vercelToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: v.key, value: v.value, type: 'plain', target: ['production', 'preview'] }),
-    }).catch(() => {}) // Ignore conflicts
+    }).catch(() => {})
   }
 }
 
@@ -418,7 +433,7 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
           await updateProject(projectId, { vercel_url: vercelUrl })
 
           // Trigger deploy
-          await fetch('https://api.vercel.com/v13/deployments', {
+          await fetchWithTimeout('https://api.vercel.com/v13/deployments', {
             method: 'POST', headers: { Authorization: `Bearer ${c.vercelToken}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: repoName, project: repoName, target: 'production', gitSource: { type: 'github', ref: 'main', org: c.githubOwner, repo: repoName } }),
           }).catch(() => {})

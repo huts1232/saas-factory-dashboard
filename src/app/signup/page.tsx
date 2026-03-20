@@ -40,9 +40,19 @@ export default function SignupPage() {
         plan: 'free',
         status: 'active',
       }, { onConflict: 'user_id' })
+
+      // If no session (email confirmation enabled), force login
+      if (!data.session) {
+        const { error: loginErr } = await supabase.auth.signInWithPassword({ email, password })
+        if (loginErr) {
+          setError(loginErr.message)
+          setLoading(false)
+          return
+        }
+      }
     }
 
-    router.push('/onboarding')
+    router.push('/dashboard')
   }
 
   async function handleGoogle() {

@@ -38,11 +38,16 @@ export function LoginModal() {
           { user_id: data.user.id, plan: 'free', status: 'active' },
           { onConflict: 'user_id' }
         )
+        // If no session (email confirmation enabled), force login
+        if (!data.session) {
+          const { error: loginErr } = await supabase.auth.signInWithPassword({ email, password })
+          if (loginErr) { setError(loginErr.message); setLoading(false); return }
+        }
         closeLoginModal()
         if (pendingIdea) {
           router.push(`/new?idea=${encodeURIComponent(pendingIdea)}`)
         } else {
-          router.push('/onboarding')
+          router.push('/dashboard')
         }
       }
     } else {
