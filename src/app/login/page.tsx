@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { GlowButton } from '@/components/ui/GlowButton'
-import { Factory, Mail, Lock } from 'lucide-react'
+import { Zap, Mail, Lock } from 'lucide-react'
 
 function LoginForm() {
   const router = useRouter()
@@ -44,9 +44,9 @@ function LoginForm() {
         <div className="text-center">
           <div className="inline-flex items-center gap-2 mb-4">
             <div className="h-8 w-8 rounded-lg bg-accent/20 flex items-center justify-center">
-              <Factory className="h-5 w-5 text-accent" />
+              <Zap className="h-5 w-5 text-accent" />
             </div>
-            <span className="text-lg font-bold"><span className="gradient-text">SaaS</span> Factory</span>
+            <span className="text-lg font-bold gradient-text">Vaxario</span>
           </div>
           <h1 className="text-2xl font-bold">Welcome back</h1>
           <p className="text-sm text-text-secondary mt-1">Log in om door te gaan</p>

@@ -6,8 +6,8 @@ import { LoginModal } from "@/components/auth/LoginModal"
 import { CookieBanner } from "@/components/ui/CookieBanner"
 
 export const metadata: Metadata = {
-  title: "SaaS Factory — Build a SaaS in minutes",
-  description: "Describe your idea. AI builds it. Full stack Next.js + Supabase, deployed on Vercel.",
+  title: "Vaxario — Build and sell AI tools without code",
+  description: "Want to build your own AI tool? Describe it. Vaxario creates it, deploys it, connects payments. Start earning.",
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

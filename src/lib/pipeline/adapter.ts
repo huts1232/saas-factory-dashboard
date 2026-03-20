@@ -324,7 +324,7 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
         }
       } else {
         // PAID/ADMIN: Use Claude Code CLI to build, test, push, and deploy
-        const projectDir = `/tmp/saas-factory-builds/${repoName}`
+        const projectDir = `/tmp/vaxario-builds/${repoName}`
         const { exec: execCb } = await import('child_process')
         const { promisify } = await import('util')
         const execAsync = promisify(execCb)
@@ -419,7 +419,7 @@ After building all files:
           // Init git and push
           try {
             await execAsync(`cd ${projectDir} && git init && git remote add origin https://${c.githubOwner}:${c.githubToken}@github.com/${c.githubOwner}/${repoName}.git 2>/dev/null || true`, { timeout: 10000 })
-            await execAsync(`cd ${projectDir} && echo "node_modules/\\n.next/\\n.env.local" > .gitignore && git add -A && git commit -m "🚀 ${productName} — built by SaaS Factory" --allow-empty`, { timeout: 30000 })
+            await execAsync(`cd ${projectDir} && echo "node_modules/\\n.next/\\n.env.local" > .gitignore && git add -A && git commit -m "🚀 ${productName} — built by Vaxario" --allow-empty`, { timeout: 30000 })
             await execAsync(`cd ${projectDir} && git branch -M main && git push -u origin main --force`, { timeout: 60000 })
             await logStep(projectId, 5, 'GitHub Push', 'success', `Pushed to ${githubUrl}`, 0, Date.now() - start)
           } catch (pushErr: any) {

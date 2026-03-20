@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { GlowButton } from '@/components/ui/GlowButton'
-import { Factory, Check, ArrowRight, Sparkles } from 'lucide-react'
+import { Zap, Check, ArrowRight, Sparkles } from 'lucide-react'
 
 const CONNECTOR_STEPS = [
   { service: 'anthropic', name: 'Anthropic', desc: 'Claude API key voor AI-generatie', placeholder: 'sk-ant-...' },
@@ -63,9 +63,9 @@ export default function OnboardingPage() {
             {step === 0 && (
               <>
                 <div className="h-16 w-16 rounded-2xl bg-accent/10 flex items-center justify-center mx-auto mb-4">
-                  <Factory className="h-8 w-8 text-accent" />
+                  <Zap className="h-8 w-8 text-accent" />
                 </div>
-                <h1 className="text-2xl font-bold mb-2">Welcome to SaaS Factory!</h1>
+                <h1 className="text-2xl font-bold mb-2">Welcome to Vaxario!</h1>
                 <p className="text-text-secondary text-sm mb-6">
                   Laten we je API keys instellen zodat je meteen kunt beginnen met bouwen.
                 </p>

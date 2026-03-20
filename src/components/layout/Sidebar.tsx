@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { useUser } from '@/lib/auth-context'
 import { createClient } from '@/lib/supabase/client'
 import {
-  Factory, LayoutDashboard, Plus, Zap, Settings, BookTemplate,
+  LayoutDashboard, Plus, Zap, Settings, BookTemplate,
   LogOut, ChevronDown, Gem, FileText, CircleCheck, CircleAlert, Circle,
   Home, Search, Star, FolderOpen, Link2,
 } from 'lucide-react'
@@ -62,10 +62,9 @@ export function Sidebar() {
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-5 h-14 border-b border-border-default flex-shrink-0">
         <div className="h-7 w-7 rounded-lg bg-accent/20 flex items-center justify-center">
-          <Factory className="h-4 w-4 text-accent" />
+          <Zap className="h-4 w-4 text-accent" />
         </div>
-        <span className="font-bold tracking-tight">
-          <span className="gradient-text">SaaS</span> Factory
+        <span className="font-bold tracking-tight gradient-text">Vaxario
         </span>
       </div>
 

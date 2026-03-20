@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { GlowButton } from '@/components/ui/GlowButton'
-import { Factory, Mail, Lock, User } from 'lucide-react'
+import { Zap, Mail, Lock, User } from 'lucide-react'
 
 export default function SignupPage() {
   const router = useRouter()
@@ -58,9 +58,9 @@ export default function SignupPage() {
         <div className="text-center">
           <div className="inline-flex items-center gap-2 mb-4">
             <div className="h-8 w-8 rounded-lg bg-accent/20 flex items-center justify-center">
-              <Factory className="h-5 w-5 text-accent" />
+              <Zap className="h-5 w-5 text-accent" />
             </div>
-            <span className="text-lg font-bold"><span className="gradient-text">SaaS</span> Factory</span>
+            <span className="text-lg font-bold gradient-text">Vaxario</span>
           </div>
           <h1 className="text-2xl font-bold">Create account</h1>
           <p className="text-sm text-text-secondary mt-1">Start gratis met bouwen</p>

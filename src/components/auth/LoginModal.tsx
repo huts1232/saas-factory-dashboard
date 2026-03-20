@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useUser } from '@/lib/auth-context'
 import { createClient } from '@/lib/supabase/client'
-import { Factory, X, Mail, Lock, Loader2 } from 'lucide-react'
+import { Zap, X, Mail, Lock, Loader2 } from 'lucide-react'
 
 export function LoginModal() {
   const { showLoginModal, closeLoginModal, pendingIdea } = useUser()
@@ -86,7 +86,7 @@ export function LoginModal() {
             <div className="text-center mb-6">
               <div className="inline-flex items-center gap-2 mb-3">
                 <div className="h-8 w-8 rounded-lg bg-accent/20 flex items-center justify-center">
-                  <Factory className="h-5 w-5 text-accent" />
+                  <Zap className="h-5 w-5 text-accent" />
                 </div>
               </div>
               <h2 className="text-xl font-bold">Start Building</h2>
