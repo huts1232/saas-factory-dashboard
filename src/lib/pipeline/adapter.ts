@@ -135,6 +135,9 @@ MANDATORY RULES:
   Self-contained files ONLY.
 - This file must compile standalone. No external local imports.
 - Only allowed imports: react, next/link, next/navigation, next/image, @supabase/supabase-js, lucide-react
+- The landing page at / must be PUBLIC. No auth required. No Supabase auth check. No redirect to /login.
+  Only /dashboard, /settings, and /admin require login.
+  The landing page should have a 'Get Started' button that links to /login or /signup.
 - Every button MUST have an onClick handler
 - Every form MUST have an onSubmit handler with e.preventDefault()
 - Include loading states (useState + Spinner)
@@ -290,11 +293,16 @@ async function verifyDeployment(projectName: string, vercelToken: string): Promi
     return { success: false, status: 'build_failed', reason: `Build stuck (state: ${latest.state})` }
   }
 
-  // URL verification — fetch the actual deployed page
+  // URL verification — fetch the actual deployed landing page
   const deployUrl = `https://${latest.url}`
   try {
     const res = await fetch(deployUrl, { redirect: 'follow' })
     const body = await res.text()
+
+    // 401 on landing page = auth blocking public page = FAIL
+    if (res.status === 401) {
+      return { success: false, status: 'deploy_failed', url: deployUrl, reason: 'Landing page returns 401 — auth is blocking public page' }
+    }
 
     if (!res.ok || body.length < 500 ||
         body.includes('DEPLOYMENT_NOT_FOUND') ||
@@ -447,12 +455,12 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
           // Generate pages via Claude API (parallel)
           const allPaths = (arch.fileStructure || []).slice(0, 10).map((f: any) => f.path)
           const pages = [
-            { path: 'app/page.tsx', desc: `Landing page for ${productName}: hero section with gradient, product name "${productName}" and tagline, features grid, pricing table, testimonials, CTA, footer. FULL page, not a stub.` },
-            { path: 'app/dashboard/page.tsx', desc: `Dashboard for ${productName}: sidebar with navigation (Home, features, Settings), stats cards with real data from Supabase, data table, welcome header. Include 'use client' and Supabase queries.` },
-            { path: 'app/login/page.tsx', desc: `Login page for ${productName}: email + password form, "Sign in with Google" button (placeholder), Supabase auth signInWithPassword, redirect to /dashboard on success. Centered card layout.` },
-            { path: 'app/signup/page.tsx', desc: `Signup page for ${productName}: name, email, password form, Supabase auth signUp, link to /login. Centered card layout.` },
-            { path: 'app/settings/page.tsx', desc: `Settings page for ${productName}: user profile section (name, email from Supabase auth), plan info, danger zone (delete account). 'use client' with Supabase.` },
-            { path: 'app/admin/page.tsx', desc: `Admin panel for ${productName}: users table from Supabase, stats cards (total users, revenue), recent activity. Protected with admin check. 'use client' with Supabase.` },
+            { path: 'app/page.tsx', desc: `PUBLIC landing page for ${productName} (NO auth check, NO Supabase auth, NO redirect to login): hero section with gradient, product name "${productName}" and tagline "${proj.tagline || ''}", features grid, pricing table, testimonials, CTA with "Get Started" button linking to /signup, footer. This page must work for anonymous visitors. FULL page, not a stub.` },
+            { path: 'app/dashboard/page.tsx', desc: `PROTECTED dashboard for ${productName} (requires auth — check supabase.auth.getUser(), redirect to /login if not logged in): sidebar with navigation (Home, features, Settings), stats cards with real data from Supabase, data table, welcome header. Include 'use client' and Supabase queries.` },
+            { path: 'app/login/page.tsx', desc: `Login page for ${productName}: email + password form, "Sign in with Google" button (placeholder), Supabase auth signInWithPassword, redirect to /dashboard on success. Centered card layout. No auth check needed — this is a public page.` },
+            { path: 'app/signup/page.tsx', desc: `Signup page for ${productName}: name, email, password form, Supabase auth signUp, link to /login. Centered card layout. No auth check needed — this is a public page.` },
+            { path: 'app/settings/page.tsx', desc: `PROTECTED settings page for ${productName} (requires auth — check supabase.auth.getUser(), redirect to /login if not logged in): user profile section (name, email from Supabase auth), plan info, danger zone (delete account). 'use client' with Supabase.` },
+            { path: 'app/admin/page.tsx', desc: `PROTECTED admin panel for ${productName} (requires auth — check supabase.auth.getUser(), redirect to /login if not logged in): users table from Supabase, stats cards (total users, revenue), recent activity. 'use client' with Supabase.` },
           ]
           await logStep(projectId, 5, 'GitHub Push', 'running', `Generating ${pages.length} pages in parallel...`)
           const results = await Promise.allSettled(
