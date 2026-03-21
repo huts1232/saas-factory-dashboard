@@ -244,6 +244,7 @@ async function setVercelEnvVars(projectName: string) {
   const vars = [
     { key: 'NEXT_PUBLIC_SUPABASE_URL', value: c.supabaseUrl },
     { key: 'NEXT_PUBLIC_SUPABASE_ANON_KEY', value: c.supabaseAnonKey },
+    { key: 'NEXT_PUBLIC_SITE_URL', value: `https://${projectName}.vercel.app` },
   ]
   for (const v of vars) {
     await fetchWithTimeout(`https://api.vercel.com/v10/projects/${projectName}/env`, {
@@ -581,11 +582,11 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
 - NO placeholder lorem ipsum — use real product copy about ${productName}: "${proj.tagline || ''}"
 - This is a COMPLETE page, minimum 200 lines of JSX. Not a stub.
 CRITICAL: No auth checks, no Supabase imports, no getUser, no createClient. Pure static React component. Link "Get Started" to /signup, "Login" to /login.` },
-            { path: 'app/dashboard/page.tsx', desc: `Dashboard for ${productName}. Auth is handled by middleware — do NOT add any auth check, getUser(), or redirect in this file. Just render the page content: sidebar with navigation (Home, features, Settings), stats cards with real data from Supabase, data table, welcome header. Include 'use client' and Supabase queries.` },
-            { path: 'app/login/page.tsx', desc: `Login page for ${productName}: email + password form, "Sign in with Google" button (placeholder), Supabase auth signInWithPassword, redirect to /dashboard on success. Centered card layout. Do NOT add any auth check or redirect — this is a public page.` },
-            { path: 'app/signup/page.tsx', desc: `Signup page for ${productName}: name, email, password fields. On submit: call supabase.auth.signUp({email, password, options: { data: { app_id: '${repoName}' }}}). If signUp returns an error like "already registered", ignore it. Then IMMEDIATELY call supabase.auth.signInWithPassword({email, password}) regardless of signUp result. Then router.push('/dashboard'). Never show 'check your email'. Always redirect to /dashboard after signup. Also insert a row into 'profiles' table with columns (id, email, app_id) where app_id='${repoName}' using upsert. Centered card layout with link to /login.` },
-            { path: 'app/settings/page.tsx', desc: `Settings page for ${productName}. Auth is handled by middleware — do NOT add any auth check, getUser(), or redirect in this file. Just render: user profile section (name, email from Supabase auth.getUser()), plan info, danger zone (delete account). 'use client' with Supabase.` },
-            { path: 'app/admin/page.tsx', desc: `Admin panel for ${productName}. Auth is handled by middleware — do NOT add any auth check, getUser(), or redirect in this file. Just render: users table from Supabase, stats cards (total users, revenue), recent activity. 'use client' with Supabase.` },
+            { path: 'app/dashboard/page.tsx', desc: `Dashboard for ${productName}. AUTH GUARD: In a useEffect, call supabase.auth.getUser(). If no user, router.push('/login'). Show a loading spinner while checking auth. After auth confirmed, render: sidebar with navigation (Home, features, Settings), stats cards with real data from Supabase, data table, welcome header. Every button and feature must be FULLY implemented with real Supabase queries. No placeholder onClick handlers. No TODO comments. Every action button (like "Create New", "Add Item") must open a modal/form that inserts data into Supabase. Every navigation item must link to a working route. Include 'use client' and Supabase queries.` },
+            { path: 'app/login/page.tsx', desc: `Login page for ${productName}: email + password form with Supabase auth signInWithPassword, redirect to /dashboard on success. Also add a "Sign in with Google" button that calls: supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/dashboard' } }). NEVER hardcode any URL — always use window.location.origin. Centered card layout. Do NOT add any auth check — this is a public page.` },
+            { path: 'app/signup/page.tsx', desc: `Signup page for ${productName}: name, email, password fields. On submit: call supabase.auth.signUp({email, password, options: { data: { app_id: '${repoName}' }}}). If signUp returns an error like "already registered", ignore it. Then IMMEDIATELY call supabase.auth.signInWithPassword({email, password}) regardless of signUp result. Then router.push('/dashboard'). Never show 'check your email'. Always redirect to /dashboard after signup. Also insert a row into 'profiles' table with columns (id, email, app_id) where app_id='${repoName}' using upsert. Also add a "Sign up with Google" button: supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/dashboard' } }). NEVER hardcode any URL — always use window.location.origin. Centered card layout with link to /login.` },
+            { path: 'app/settings/page.tsx', desc: `Settings page for ${productName}. AUTH GUARD: In a useEffect, call supabase.auth.getUser(). If no user, router.push('/login'). Show loading spinner while checking. Then render: user profile section (name, email from the user object), plan info, danger zone (delete account). 'use client' with Supabase.` },
+            { path: 'app/admin/page.tsx', desc: `Admin panel for ${productName}. AUTH GUARD: In a useEffect, call supabase.auth.getUser(). If no user, router.push('/login'). Show loading spinner while checking. Then render: users table from Supabase, stats cards (total users, revenue), recent activity. 'use client' with Supabase.` },
           ]
           await logStep(projectId, 5, 'GitHub Push', 'running', `Generating ${pages.length} pages in parallel...`)
           const results = await Promise.allSettled(
@@ -618,13 +619,19 @@ CRITICAL: No auth checks, no Supabase imports, no getUser, no createClient. Pure
           const { url: vercelUrl, projectId: vercelProjectId } = await createVercelProject(repoName, repoName)
           await setVercelEnvVars(repoName)
 
-          // Trigger deployment linked to GitHub repo
+          // Trigger deployment and capture actual URL from response
+          let deploymentUrl = vercelUrl
           try {
-            await fetchWithTimeout('https://api.vercel.com/v13/deployments', {
+            const deployRes = await fetchWithTimeout('https://api.vercel.com/v13/deployments', {
               method: 'POST', headers: { Authorization: `Bearer ${c.vercelToken}`, 'Content-Type': 'application/json' },
               body: JSON.stringify({ name: repoName, project: repoName, target: 'production', gitSource: { type: 'github', ref: 'main', org: c.githubOwner, repo: repoName } }),
             })
+            if (deployRes.ok) {
+              const deployData = await deployRes.json()
+              if (deployData.url) deploymentUrl = `https://${deployData.url}`
+            }
           } catch {}
+          await updateProject(projectId, { vercel_url: deploymentUrl })
 
           // REAL verification — wait, check build status, check URL
           await logStep(projectId, 6, 'Deploy', 'running', 'Waiting for Vercel build...')
