@@ -247,22 +247,67 @@ async function setVercelEnvVars(projectName: string) {
   }
 }
 
-// Verify URL returns 200 with real content
-async function verifyDeployment(url: string, maxAttempts = 20): Promise<boolean> {
-  for (let i = 0; i < maxAttempts; i++) {
-    try {
-      const res = await fetch(url, { redirect: 'follow' })
-      if (res.ok) {
-        const body = await res.text()
-        // Must have real content, not error pages
-        if (body.length > 500 && !body.toLowerCase().includes('application error') && !body.toLowerCase().includes('this page could not be found')) {
-          return true
-        }
-      }
-    } catch {}
-    await new Promise(r => setTimeout(r, 20000))
+// ===== REAL DEPLOYMENT VERIFICATION =====
+interface VerifyResult {
+  success: boolean
+  status: 'live' | 'build_failed' | 'deploy_failed'
+  url?: string
+  reason?: string
+}
+
+async function verifyDeployment(projectName: string, vercelToken: string): Promise<VerifyResult> {
+  const headers = { Authorization: `Bearer ${vercelToken}` }
+
+  // Wait for Vercel to finish building
+  await new Promise(r => setTimeout(r, 30000))
+
+  // Poll deployment status (up to 2 extra attempts if still building)
+  let latest: any = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const deploys = await fetchWithTimeout(
+      `https://api.vercel.com/v6/deployments?projectId=${projectName}&limit=1`,
+      { headers }
+    ).then(r => r.json()).catch(() => ({ deployments: [] }))
+
+    latest = deploys.deployments?.[0]
+    if (!latest) {
+      return { success: false, status: 'build_failed', reason: 'No deployments found' }
+    }
+
+    if (latest.state === 'READY' || latest.state === 'ERROR') break
+
+    // Still building — wait another 30s
+    if (attempt < 2) await new Promise(r => setTimeout(r, 30000))
   }
-  return false
+
+  // Build error
+  if (!latest || latest.state === 'ERROR') {
+    return { success: false, status: 'build_failed', reason: `Build failed (state: ${latest?.state || 'unknown'})` }
+  }
+
+  // Not ready after all retries
+  if (latest.state !== 'READY') {
+    return { success: false, status: 'build_failed', reason: `Build stuck (state: ${latest.state})` }
+  }
+
+  // URL verification — fetch the actual deployed page
+  const deployUrl = `https://${latest.url}`
+  try {
+    const res = await fetch(deployUrl, { redirect: 'follow' })
+    const body = await res.text()
+
+    if (!res.ok || body.length < 500 ||
+        body.includes('DEPLOYMENT_NOT_FOUND') ||
+        body.includes('404') ||
+        body.toLowerCase().includes('application error') ||
+        body.toLowerCase().includes('this page could not be found')) {
+      return { success: false, status: 'deploy_failed', url: deployUrl, reason: `Page check failed (status: ${res.status}, length: ${body.length})` }
+    }
+
+    return { success: true, status: 'live', url: deployUrl }
+  } catch (err: any) {
+    return { success: false, status: 'deploy_failed', url: deployUrl, reason: `URL unreachable: ${err.message}` }
+  }
 }
 
 // ===== PROMPTS =====
@@ -431,7 +476,7 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
           await logStep(projectId, 5, 'GitHub Push', 'success', `${allFiles.length} files → ${githubUrl}`, 0, Date.now() - start)
         }
 
-        // Step 6: Deploy to Vercel
+        // Step 6: Deploy to Vercel + REAL verification
         if (startFrom <= 6) {
           await updateProject(projectId, { status: 'deploying', current_step: 6 })
           await logStep(projectId, 6, 'Deploy', 'running', 'Deploying to Vercel...')
@@ -441,23 +486,27 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
           await setVercelEnvVars(repoName)
 
           // Trigger deployment linked to GitHub repo
-          let actualUrl = vercelUrl
           try {
-            const deployRes = await fetchWithTimeout('https://api.vercel.com/v13/deployments', {
+            await fetchWithTimeout('https://api.vercel.com/v13/deployments', {
               method: 'POST', headers: { Authorization: `Bearer ${c.vercelToken}`, 'Content-Type': 'application/json' },
               body: JSON.stringify({ name: repoName, project: repoName, target: 'production', gitSource: { type: 'github', ref: 'main', org: c.githubOwner, repo: repoName } }),
             })
-            if (deployRes.ok) {
-              const deployData = await deployRes.json()
-              if (deployData.url) actualUrl = `https://${deployData.url}`
-            }
           } catch {}
 
-          // Wait for deployment to start building
-          await new Promise(r => setTimeout(r, 3000))
+          // REAL verification — wait, check build status, check URL
+          await logStep(projectId, 6, 'Deploy', 'running', 'Waiting for Vercel build...')
+          const verify = await verifyDeployment(repoName, c.vercelToken)
 
-          await updateProject(projectId, { vercel_url: actualUrl })
-          await logStep(projectId, 6, 'Deploy', 'success', `Deployed → ${actualUrl}`, 0, Date.now() - start)
+          if (verify.success && verify.url) {
+            await updateProject(projectId, { vercel_url: verify.url })
+            await logStep(projectId, 6, 'Deploy', 'success', `Live → ${verify.url}`, 0, Date.now() - start)
+          } else if (verify.status === 'build_failed') {
+            await updateProject(projectId, { vercel_url: vercelUrl, status: 'build_failed' })
+            await logStep(projectId, 6, 'Deploy', 'failed', `Build failed — ${verify.reason}`, 0, Date.now() - start)
+          } else {
+            await updateProject(projectId, { vercel_url: verify.url || vercelUrl, status: 'deploy_failed' })
+            await logStep(projectId, 6, 'Deploy', 'failed', `Deployment issue — ${verify.reason}`, 0, Date.now() - start)
+          }
         }
       }
     }
@@ -476,8 +525,19 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
       else { await logStep(projectId, s.num, s.name, 'running', `${s.name}...`); await new Promise(r => setTimeout(r, 500)); await logStep(projectId, s.num, s.name, 'success', `${s.name} complete`) }
     }
 
-    const { data: final } = await db.from('factory_projects').select('vercel_url, github_url').eq('id', projectId).single()
-    const finalStatus = isFreeUser ? 'preview' : (final?.vercel_url ? 'live' : 'failed')
+    const { data: final } = await db.from('factory_projects').select('vercel_url, github_url, status').eq('id', projectId).single()
+
+    // NEVER set "live" if deploy/build failed — preserve the failure status
+    let finalStatus: string
+    if (isFreeUser) {
+      finalStatus = 'preview'
+    } else if (final?.status === 'build_failed' || final?.status === 'deploy_failed') {
+      finalStatus = final.status  // Keep the failure status
+    } else if (final?.vercel_url) {
+      finalStatus = 'live'
+    } else {
+      finalStatus = 'failed'
+    }
 
     await updateProject(projectId, {
       status: finalStatus, current_step: 11,
