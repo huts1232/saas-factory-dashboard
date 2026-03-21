@@ -148,12 +148,15 @@ MANDATORY RULES:
 - NO TODO comments — write real code
 - NO placeholder data — use real Supabase queries
 - NO imports from non-existent files
+- DESIGN: Use a dark, premium SaaS theme. Dark backgrounds (slate-900, slate-800), white text, purple/blue gradient accents. Every page must look polished and professional with proper spacing, rounded corners, hover states.
 - Output ONLY the file content. No markdown, no explanation.`
 
   const dbSchema = arch.database?.tables?.map((t: any) => `${t.name}(${t.columns?.map((c: any) => c.name).join(', ')})`).join('; ') || ''
 
   const prompt = `Generate: ${filePath}\nDescription: ${fileDesc}\nProduct: ${features.productName} — ${features.tagline}\nDB: ${dbSchema}\nFiles: ${allPaths.slice(0, 10).join(', ')}\nPricing: ${features.monetization?.suggestedPrice || '$9/mo'}\n\nSelf-contained file. No imports from @/components or @/lib.`
-  const { text } = await askClaude(prompt, system, 8192)
+  // Landing page needs more tokens for full design
+  const maxTokens = filePath.includes('page.tsx') && !filePath.includes('dashboard') && !filePath.includes('login') && !filePath.includes('signup') && !filePath.includes('settings') && !filePath.includes('admin') ? 16384 : 8192
+  const { text } = await askClaude(prompt, system, maxTokens)
   return text.replace(/^```(?:typescript|tsx|ts|javascript|jsx)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
 }
 
@@ -661,7 +664,20 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
           // Generate pages via Claude API (parallel)
           const allPaths = (arch.fileStructure || []).slice(0, 10).map((f: any) => f.path)
           const pages = [
-            { path: 'app/page.tsx', desc: `Public landing page for ${productName}. CRITICAL: This page requires ZERO authentication. No Supabase auth checks. No getUser(). No getSession(). No redirects. No middleware. No 'use client' with auth. Pure static React component with: hero section with gradient background, product name "${productName}" and tagline "${proj.tagline || ''}", features grid, pricing table, CTA buttons linking to /signup and /login. Anyone must be able to visit this page without being logged in. Do NOT import or use createClient from @supabase/supabase-js on this page.` },
+            { path: 'app/page.tsx', desc: `Public marketing landing page for ${productName}. DESIGN REQUIREMENTS — must match a professional SaaS landing page:
+- Full dark gradient background (from slate-900 via purple-900 to slate-900)
+- Sticky navbar with logo left, nav links center (Features, Pricing, Docs), "Get Started" button right with purple gradient (bg-gradient-to-r from-purple-600 to-blue-600)
+- Hero section: huge bold headline (text-5xl md:text-7xl font-black text-white), subheadline (text-gray-400), two CTA buttons (primary purple gradient + secondary outline border-white/20), social proof line with user count "1,000+ teams trust ${productName}"
+- Features grid: 3 columns on desktop, each card has dark bg (bg-white/5 border border-white/10 rounded-2xl p-6), gradient icon, white title (text-lg font-semibold text-white), gray description (text-gray-400)
+- Pricing section: 3 tiers (Free/Pro at ${proj.pricing?.suggestedPrice || '$9/mo'}/Enterprise), highlighted middle card with purple gradient border and "Most Popular" badge, dark card backgrounds
+- Testimonials: 3 cards with avatar initials, name (text-white), role (text-gray-500), quote (text-gray-300), dark card bg
+- CTA banner: full-width gradient bg with bold headline and "Get Started Free" button
+- Footer: dark bg-slate-950, logo, link columns, copyright
+- Use ONLY Tailwind classes, no external CSS, no style={{}} objects
+- Every color explicit: bg-slate-900, text-white, bg-purple-600, text-gray-400, border-white/10 etc.
+- NO placeholder lorem ipsum — use real product copy about ${productName}: "${proj.tagline || ''}"
+- This is a COMPLETE page, minimum 200 lines of JSX. Not a stub.
+CRITICAL: No auth checks, no Supabase imports, no getUser, no createClient. Pure static React component. Link "Get Started" to /signup, "Login" to /login.` },
             { path: 'app/dashboard/page.tsx', desc: `Dashboard for ${productName}. Auth is handled by middleware — do NOT add any auth check, getUser(), or redirect in this file. Just render the page content: sidebar with navigation (Home, features, Settings), stats cards with real data from Supabase, data table, welcome header. Include 'use client' and Supabase queries.` },
             { path: 'app/login/page.tsx', desc: `Login page for ${productName}: email + password form, "Sign in with Google" button (placeholder), Supabase auth signInWithPassword, redirect to /dashboard on success. Centered card layout. Do NOT add any auth check or redirect — this is a public page.` },
             { path: 'app/signup/page.tsx', desc: `Signup page for ${productName}: name, email, password fields. On submit: call supabase.auth.signUp({email, password}), then IMMEDIATELY call supabase.auth.signInWithPassword({email, password}), then router.push('/dashboard'). Never show 'check your email'. Always redirect to /dashboard after signup. Centered card layout with link to /login.` },
