@@ -540,13 +540,42 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
           const allFiles: Array<{ path: string; content: string }> = []
 
           // Static config (never fails)
-          allFiles.push({ path: 'package.json', content: JSON.stringify({ name: repoName, version: '0.1.0', private: true, scripts: { dev: 'next dev', build: 'next build', start: 'next start' }, dependencies: { next: '^14.2.5', react: '^18.3.1', 'react-dom': '^18.3.1', '@supabase/supabase-js': '^2.44.4', 'lucide-react': '^0.427.0', clsx: '^2.1.1', 'tailwind-merge': '^2.4.0' }, devDependencies: { typescript: '^5.5.4', '@types/node': '^20.14.12', '@types/react': '^18.3.3', tailwindcss: '^3.4.7', postcss: '^8.4.40', autoprefixer: '^10.4.20' } }, null, 2) })
+          allFiles.push({ path: 'package.json', content: JSON.stringify({ name: repoName, version: '0.1.0', private: true, scripts: { dev: 'next dev', build: 'next build', start: 'next start' }, dependencies: { next: '^14.2.5', react: '^18.3.1', 'react-dom': '^18.3.1', '@supabase/supabase-js': '^2.44.4', '@supabase/auth-helpers-nextjs': '^0.10.0', 'lucide-react': '^0.427.0', clsx: '^2.1.1', 'tailwind-merge': '^2.4.0' }, devDependencies: { typescript: '^5.5.4', '@types/node': '^20.14.12', '@types/react': '^18.3.3', tailwindcss: '^3.4.7', postcss: '^8.4.40', autoprefixer: '^10.4.20' } }, null, 2) })
           allFiles.push({ path: 'tsconfig.json', content: JSON.stringify({ compilerOptions: { target: 'ES2017', lib: ['dom', 'dom.iterable', 'esnext'], allowJs: true, skipLibCheck: true, strict: false, noEmit: true, esModuleInterop: true, module: 'esnext', moduleResolution: 'bundler', resolveJsonModule: true, isolatedModules: true, jsx: 'preserve', incremental: true, plugins: [{ name: 'next' }], paths: { '@/*': ['./src/*'] } }, include: ['next-env.d.ts', '**/*.ts', '**/*.tsx'], exclude: ['node_modules'] }, null, 2) })
           allFiles.push({ path: 'tailwind.config.ts', content: 'import type { Config } from "tailwindcss";\nconst config: Config = { content: ["./src/**/*.{ts,tsx}"], theme: { extend: {} }, plugins: [] };\nexport default config;' })
           allFiles.push({ path: 'postcss.config.js', content: 'module.exports = { plugins: { tailwindcss: {}, autoprefixer: {} } };' })
           allFiles.push({ path: 'next.config.mjs', content: '/** @type {import("next").NextConfig} */\nconst nextConfig = {\n  eslint: { ignoreDuringBuilds: true },\n  typescript: { ignoreBuildErrors: true },\n};\nexport default nextConfig;' })
           allFiles.push({ path: 'src/app/globals.css', content: '@tailwind base;\n@tailwind components;\n@tailwind utilities;' })
           allFiles.push({ path: '.gitignore', content: 'node_modules/\n.next/\n.env.local' })
+
+          // Hardcoded middleware — ONLY protects /dashboard, /settings, /admin
+          // Landing page (/), /login, /signup are always public
+          allFiles.push({ path: 'src/middleware.ts', content: `import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+
+export async function middleware(req: NextRequest) {
+  const res = NextResponse.next()
+  const supabase = createMiddlewareClient({ req, res })
+  const { data: { session } } = await supabase.auth.getSession()
+
+  if (!session && req.nextUrl.pathname.startsWith('/dashboard')) {
+    return NextResponse.redirect(new URL('/login', req.url))
+  }
+  if (!session && req.nextUrl.pathname.startsWith('/settings')) {
+    return NextResponse.redirect(new URL('/login', req.url))
+  }
+  if (!session && req.nextUrl.pathname.startsWith('/admin')) {
+    return NextResponse.redirect(new URL('/login', req.url))
+  }
+
+  return res
+}
+
+export const config = {
+  matcher: ['/dashboard/:path*', '/settings/:path*', '/admin/:path*']
+}
+` })
 
           // Static layout + Supabase helper
           const tagline = proj.tagline || ''
@@ -558,11 +587,11 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
           const allPaths = (arch.fileStructure || []).slice(0, 10).map((f: any) => f.path)
           const pages = [
             { path: 'app/page.tsx', desc: `PUBLIC landing page for ${productName} (NO auth check, NO Supabase auth, NO redirect to login): hero section with gradient, product name "${productName}" and tagline "${proj.tagline || ''}", features grid, pricing table, testimonials, CTA with "Get Started" button linking to /signup, footer. This page must work for anonymous visitors. FULL page, not a stub.` },
-            { path: 'app/dashboard/page.tsx', desc: `PROTECTED dashboard for ${productName} (requires auth — check supabase.auth.getUser(), redirect to /login if not logged in): sidebar with navigation (Home, features, Settings), stats cards with real data from Supabase, data table, welcome header. Include 'use client' and Supabase queries.` },
-            { path: 'app/login/page.tsx', desc: `Login page for ${productName}: email + password form, "Sign in with Google" button (placeholder), Supabase auth signInWithPassword, redirect to /dashboard on success. Centered card layout. No auth check needed — this is a public page.` },
-            { path: 'app/signup/page.tsx', desc: `Signup page for ${productName}: name, email, password form, Supabase auth signUp, link to /login. Centered card layout. No auth check needed — this is a public page.` },
-            { path: 'app/settings/page.tsx', desc: `PROTECTED settings page for ${productName} (requires auth — check supabase.auth.getUser(), redirect to /login if not logged in): user profile section (name, email from Supabase auth), plan info, danger zone (delete account). 'use client' with Supabase.` },
-            { path: 'app/admin/page.tsx', desc: `PROTECTED admin panel for ${productName} (requires auth — check supabase.auth.getUser(), redirect to /login if not logged in): users table from Supabase, stats cards (total users, revenue), recent activity. 'use client' with Supabase.` },
+            { path: 'app/dashboard/page.tsx', desc: `Dashboard for ${productName}. Auth is handled by middleware — do NOT add any auth check, getUser(), or redirect in this file. Just render the page content: sidebar with navigation (Home, features, Settings), stats cards with real data from Supabase, data table, welcome header. Include 'use client' and Supabase queries.` },
+            { path: 'app/login/page.tsx', desc: `Login page for ${productName}: email + password form, "Sign in with Google" button (placeholder), Supabase auth signInWithPassword, redirect to /dashboard on success. Centered card layout. Do NOT add any auth check or redirect — this is a public page.` },
+            { path: 'app/signup/page.tsx', desc: `Signup page for ${productName}: name, email, password form, Supabase auth signUp, link to /login. Centered card layout. Do NOT add any auth check or redirect — this is a public page.` },
+            { path: 'app/settings/page.tsx', desc: `Settings page for ${productName}. Auth is handled by middleware — do NOT add any auth check, getUser(), or redirect in this file. Just render: user profile section (name, email from Supabase auth.getUser()), plan info, danger zone (delete account). 'use client' with Supabase.` },
+            { path: 'app/admin/page.tsx', desc: `Admin panel for ${productName}. Auth is handled by middleware — do NOT add any auth check, getUser(), or redirect in this file. Just render: users table from Supabase, stats cards (total users, revenue), recent activity. 'use client' with Supabase.` },
           ]
           await logStep(projectId, 5, 'GitHub Push', 'running', `Generating ${pages.length} pages in parallel...`)
           const results = await Promise.allSettled(
