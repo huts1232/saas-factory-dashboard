@@ -540,7 +540,7 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
           const allFiles: Array<{ path: string; content: string }> = []
 
           // Static config (never fails)
-          allFiles.push({ path: 'package.json', content: JSON.stringify({ name: repoName, version: '0.1.0', private: true, scripts: { dev: 'next dev', build: 'next build', start: 'next start' }, dependencies: { next: '^14.2.5', react: '^18.3.1', 'react-dom': '^18.3.1', '@supabase/supabase-js': '^2.44.4', '@supabase/auth-helpers-nextjs': '^0.10.0', 'lucide-react': '^0.427.0', clsx: '^2.1.1', 'tailwind-merge': '^2.4.0' }, devDependencies: { typescript: '^5.5.4', '@types/node': '^20.14.12', '@types/react': '^18.3.3', tailwindcss: '^3.4.7', postcss: '^8.4.40', autoprefixer: '^10.4.20' } }, null, 2) })
+          allFiles.push({ path: 'package.json', content: JSON.stringify({ name: repoName, version: '0.1.0', private: true, scripts: { dev: 'next dev', build: 'next build', start: 'next start' }, dependencies: { next: '^14.2.5', react: '^18.3.1', 'react-dom': '^18.3.1', '@supabase/supabase-js': '^2.44.4', 'lucide-react': '^0.427.0', clsx: '^2.1.1', 'tailwind-merge': '^2.4.0' }, devDependencies: { typescript: '^5.5.4', '@types/node': '^20.14.12', '@types/react': '^18.3.3', tailwindcss: '^3.4.7', postcss: '^8.4.40', autoprefixer: '^10.4.20' } }, null, 2) })
           allFiles.push({ path: 'tsconfig.json', content: JSON.stringify({ compilerOptions: { target: 'ES2017', lib: ['dom', 'dom.iterable', 'esnext'], allowJs: true, skipLibCheck: true, strict: false, noEmit: true, esModuleInterop: true, module: 'esnext', moduleResolution: 'bundler', resolveJsonModule: true, isolatedModules: true, jsx: 'preserve', incremental: true, plugins: [{ name: 'next' }], paths: { '@/*': ['./src/*'] } }, include: ['next-env.d.ts', '**/*.ts', '**/*.tsx'], exclude: ['node_modules'] }, null, 2) })
           allFiles.push({ path: 'tailwind.config.ts', content: 'import type { Config } from "tailwindcss";\nconst config: Config = { content: ["./src/**/*.{ts,tsx}"], theme: { extend: {} }, plugins: [] };\nexport default config;' })
           allFiles.push({ path: 'postcss.config.js', content: 'module.exports = { plugins: { tailwindcss: {}, autoprefixer: {} } };' })
@@ -548,34 +548,16 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
           allFiles.push({ path: 'src/app/globals.css', content: '@tailwind base;\n@tailwind components;\n@tailwind utilities;' })
           allFiles.push({ path: '.gitignore', content: 'node_modules/\n.next/\n.env.local' })
 
-          // Hardcoded middleware — ONLY protects /dashboard, /settings, /admin
-          // Landing page (/), /login, /signup are always public
-          allFiles.push({ path: 'src/middleware.ts', content: `import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
-
-export async function middleware(req: NextRequest) {
-  const res = NextResponse.next()
-  const supabase = createMiddlewareClient({ req, res })
-  const { data: { session } } = await supabase.auth.getSession()
-
-  if (!session && req.nextUrl.pathname.startsWith('/dashboard')) {
-    return NextResponse.redirect(new URL('/login', req.url))
-  }
-  if (!session && req.nextUrl.pathname.startsWith('/settings')) {
-    return NextResponse.redirect(new URL('/login', req.url))
-  }
-  if (!session && req.nextUrl.pathname.startsWith('/admin')) {
-    return NextResponse.redirect(new URL('/login', req.url))
-  }
-
-  return res
-}
-
-export const config = {
-  matcher: ['/dashboard/:path*', '/settings/:path*', '/admin/:path*']
-}
-` })
+          // Hardcoded middleware — passthrough on protected routes only
+          // Auth checks happen client-side in each page via Supabase JS
+          // This middleware exists to ensure ONLY matched routes are processed
+          // and the landing page (/) is NEVER touched
+          allFiles.push({ path: 'src/middleware.ts', content: [
+            `import { NextResponse } from 'next/server'`,
+            `export function middleware() { return NextResponse.next() }`,
+            `export const config = { matcher: ['/dashboard/:path*', '/settings/:path*', '/admin/:path*'] }`,
+            '',
+          ].join('\n') })
 
           // Static layout + Supabase helper
           const tagline = proj.tagline || ''
