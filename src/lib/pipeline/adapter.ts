@@ -12,8 +12,6 @@ function getConfig() {
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
     supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
     supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    supabaseAccessToken: process.env.SUPABASE_ACCESS_TOKEN!,
-    supabaseOrgId: process.env.SUPABASE_ORG_ID!,
     claudeModel: 'claude-sonnet-4-20250514',
   }
 }
@@ -241,69 +239,11 @@ async function createVercelProject(projectName: string, repoName: string): Promi
   return { url: `https://${projectName}.vercel.app`, projectId: data.id }
 }
 
-// ===== PER-VAX SUPABASE PROJECT =====
-async function createSupabaseProjectForVax(projectName: string): Promise<{ url: string; anonKey: string; projectId: string }> {
-  const c = getConfig()
-  const dbPass = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2).toUpperCase() + '!1'
-
-  const res = await fetchWithTimeout('https://api.supabase.com/v1/projects', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${c.supabaseAccessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: projectName,
-      organization_id: c.supabaseOrgId,
-      plan: 'free',
-      region: 'eu-west-1',
-      db_pass: dbPass,
-    }),
-  }, 30000)
-  if (!res.ok) throw new Error(`Supabase project creation failed: ${await res.text()}`)
-  const project = await res.json()
-
-  // Wait for project to become active (up to 3 minutes)
-  for (let i = 0; i < 18; i++) {
-    await new Promise(r => setTimeout(r, 10000))
-    const statusRes = await fetchWithTimeout(`https://api.supabase.com/v1/projects/${project.id}`, {
-      headers: { Authorization: `Bearer ${c.supabaseAccessToken}` },
-    })
-    const data = await statusRes.json()
-    if (data.status === 'ACTIVE_HEALTHY') {
-      // Get anon key
-      const keysRes = await fetchWithTimeout(`https://api.supabase.com/v1/projects/${project.id}/api-keys`, {
-        headers: { Authorization: `Bearer ${c.supabaseAccessToken}` },
-      })
-      const keys = await keysRes.json()
-      const anonKey = keys.find((k: any) => k.name === 'anon')?.api_key
-      if (!anonKey) throw new Error('Could not find anon key for new Supabase project')
-
-      // Disable email confirmation
-      await fetchWithTimeout(`https://api.supabase.com/v1/projects/${project.id}/config/auth`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${c.supabaseAccessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mailer_autoconfirm: true }),
-      }).catch(() => {})
-
-      // Create exec_sql helper for table creation
-      const serviceKey = keys.find((k: any) => k.name === 'service_role')?.api_key
-      if (serviceKey) {
-        await fetchWithTimeout(`https://${project.id}.supabase.co/rest/v1/rpc/exec_sql`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, Prefer: 'return=minimal' },
-          body: JSON.stringify({ query: `CREATE OR REPLACE FUNCTION exec_sql(query text) RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN EXECUTE query; END; $$;` }),
-        }).catch(() => {})
-      }
-
-      return { url: `https://${project.id}.supabase.co`, anonKey, projectId: project.id }
-    }
-  }
-  throw new Error('Supabase project creation timed out after 3 minutes')
-}
-
-async function setVercelEnvVars(projectName: string, supabaseUrl: string, supabaseAnonKey: string) {
+async function setVercelEnvVars(projectName: string) {
   const c = getConfig()
   const vars = [
-    { key: 'NEXT_PUBLIC_SUPABASE_URL', value: supabaseUrl },
-    { key: 'NEXT_PUBLIC_SUPABASE_ANON_KEY', value: supabaseAnonKey },
+    { key: 'NEXT_PUBLIC_SUPABASE_URL', value: c.supabaseUrl },
+    { key: 'NEXT_PUBLIC_SUPABASE_ANON_KEY', value: c.supabaseAnonKey },
   ]
   for (const v of vars) {
     await fetchWithTimeout(`https://api.vercel.com/v10/projects/${projectName}/env`, {
@@ -554,65 +494,28 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
           await logStep(projectId, 3, 'Code Generation', 'success', `Preparing files for ${productName}`)
         }
 
-        // Step 4: Create dedicated Supabase project + tables
+        // Step 4: Database — create tables on shared Supabase project
         if (startFrom <= 4) {
           await updateProject(projectId, { status: 'database', current_step: 4 })
-          await logStep(projectId, 4, 'Database Setup', 'running', 'Creating dedicated Supabase project...')
+          await logStep(projectId, 4, 'Database Setup', 'running', 'Creating tables...')
           const start = Date.now()
+          const tables = arch.database?.tables || []
 
-          try {
-            // Check if this Vax already has its own Supabase project
-            let vaxSupabaseUrl = proj.vax_supabase_url
-            let vaxAnonKey = proj.vax_supabase_anon_key
-
-            if (!vaxSupabaseUrl || !vaxAnonKey) {
-              const sbProject = await createSupabaseProjectForVax(repoName)
-              vaxSupabaseUrl = sbProject.url
-              vaxAnonKey = sbProject.anonKey
-              await updateProject(projectId, { vax_supabase_url: vaxSupabaseUrl, vax_supabase_anon_key: vaxAnonKey })
-              await logStep(projectId, 4, 'Database Setup', 'running', `Project created: ${sbProject.projectId}`)
-            }
-
-            // Create tables on the new project via Management API
-            const tables = arch.database?.tables || []
-            if (tables.length > 0) {
-              const vaxProjectId = vaxSupabaseUrl.match(/https:\/\/([^.]+)/)?.[1]
-              if (vaxProjectId) {
-                const statements = tables.map((t: any) => tableToSQL(t))
-                const rlsStatements = tables.map((t: any) =>
-                  `ALTER TABLE "public"."${t.name}" ENABLE ROW LEVEL SECURITY;\n` +
-                  `DO $$ BEGIN ` +
-                  `IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='${t.name}' AND policyname='Allow anon read ${t.name}') THEN ` +
-                  `CREATE POLICY "Allow anon read ${t.name}" ON "public"."${t.name}" FOR SELECT TO anon USING (true); ` +
-                  `END IF; ` +
-                  `IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='${t.name}' AND policyname='Allow auth all ${t.name}') THEN ` +
-                  `CREATE POLICY "Allow auth all ${t.name}" ON "public"."${t.name}" FOR ALL TO authenticated USING (true) WITH CHECK (true); ` +
-                  `END IF; ` +
-                  `END $$;`
-                )
-                const fullSQL = [...statements, ...rlsStatements].join('\n\n')
-
-                // Execute SQL via Supabase Management API
-                const sqlRes = await fetchWithTimeout(
-                  `https://api.supabase.com/v1/projects/${vaxProjectId}/database/query`,
-                  {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${c.supabaseAccessToken}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query: fullSQL }),
-                  }, 60000
-                )
-                if (!sqlRes.ok) {
-                  const errText = await sqlRes.text().catch(() => 'unknown')
-                  console.error(`Table creation failed: ${errText}`)
-                }
+          if (tables.length > 0) {
+            try {
+              await createSupabaseTables(tables)
+              const missing = await verifySupabaseTables(tables.map((t: any) => t.name))
+              if (missing.length > 0) {
+                const retryTables = tables.filter((t: any) => missing.includes(t.name))
+                await createSupabaseTables(retryTables)
               }
-              await logStep(projectId, 4, 'Database Setup', 'success', `${tables.length} tables created on dedicated project`, 0, Date.now() - start)
-            } else {
-              await logStep(projectId, 4, 'Database Setup', 'success', 'Dedicated project created (no tables needed)', 0, Date.now() - start)
+              await logStep(projectId, 4, 'Database Setup', 'success', `${tables.length} tables created`, 0, Date.now() - start)
+            } catch (err: any) {
+              console.error('Database setup error:', err.message)
+              await logStep(projectId, 4, 'Database Setup', 'failed', `SQL error: ${err.message.slice(0, 200)}`, 0, Date.now() - start)
             }
-          } catch (err: any) {
-            console.error('Database setup error:', err.message)
-            await logStep(projectId, 4, 'Database Setup', 'failed', `Error: ${err.message.slice(0, 200)}`, 0, Date.now() - start)
+          } else {
+            await logStep(projectId, 4, 'Database Setup', 'success', 'No tables to create')
           }
         }
 
@@ -680,7 +583,7 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
 CRITICAL: No auth checks, no Supabase imports, no getUser, no createClient. Pure static React component. Link "Get Started" to /signup, "Login" to /login.` },
             { path: 'app/dashboard/page.tsx', desc: `Dashboard for ${productName}. Auth is handled by middleware — do NOT add any auth check, getUser(), or redirect in this file. Just render the page content: sidebar with navigation (Home, features, Settings), stats cards with real data from Supabase, data table, welcome header. Include 'use client' and Supabase queries.` },
             { path: 'app/login/page.tsx', desc: `Login page for ${productName}: email + password form, "Sign in with Google" button (placeholder), Supabase auth signInWithPassword, redirect to /dashboard on success. Centered card layout. Do NOT add any auth check or redirect — this is a public page.` },
-            { path: 'app/signup/page.tsx', desc: `Signup page for ${productName}: name, email, password fields. On submit: call supabase.auth.signUp({email, password}), then IMMEDIATELY call supabase.auth.signInWithPassword({email, password}), then router.push('/dashboard'). Never show 'check your email'. Always redirect to /dashboard after signup. Centered card layout with link to /login.` },
+            { path: 'app/signup/page.tsx', desc: `Signup page for ${productName}: name, email, password fields. On submit: call supabase.auth.signUp({email, password, options: { data: { app_id: '${repoName}' }}}). If signUp returns an error like "already registered", ignore it. Then IMMEDIATELY call supabase.auth.signInWithPassword({email, password}) regardless of signUp result. Then router.push('/dashboard'). Never show 'check your email'. Always redirect to /dashboard after signup. Also insert a row into 'profiles' table with columns (id, email, app_id) where app_id='${repoName}' using upsert. Centered card layout with link to /login.` },
             { path: 'app/settings/page.tsx', desc: `Settings page for ${productName}. Auth is handled by middleware — do NOT add any auth check, getUser(), or redirect in this file. Just render: user profile section (name, email from Supabase auth.getUser()), plan info, danger zone (delete account). 'use client' with Supabase.` },
             { path: 'app/admin/page.tsx', desc: `Admin panel for ${productName}. Auth is handled by middleware — do NOT add any auth check, getUser(), or redirect in this file. Just render: users table from Supabase, stats cards (total users, revenue), recent activity. 'use client' with Supabase.` },
           ]
@@ -713,12 +616,7 @@ CRITICAL: No auth checks, no Supabase imports, no getUser, no createClient. Pure
           const start = Date.now()
 
           const { url: vercelUrl, projectId: vercelProjectId } = await createVercelProject(repoName, repoName)
-
-          // Use vax-specific Supabase keys (reload project to get them)
-          const { data: projForEnv } = await db.from('factory_projects').select('vax_supabase_url, vax_supabase_anon_key').eq('id', projectId).single()
-          const envSupabaseUrl = projForEnv?.vax_supabase_url || c.supabaseUrl
-          const envAnonKey = projForEnv?.vax_supabase_anon_key || c.supabaseAnonKey
-          await setVercelEnvVars(repoName, envSupabaseUrl, envAnonKey)
+          await setVercelEnvVars(repoName)
 
           // Trigger deployment linked to GitHub repo
           try {
