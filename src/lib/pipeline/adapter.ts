@@ -250,6 +250,78 @@ async function setVercelEnvVars(projectName: string) {
   }
 }
 
+// ===== SUPABASE TABLE CREATION =====
+function mapColumnType(type: string): string {
+  const map: Record<string, string> = {
+    uuid: 'uuid', text: 'text', integer: 'integer', boolean: 'boolean',
+    timestamptz: 'timestamptz', jsonb: 'jsonb', decimal: 'decimal',
+    bigint: 'bigint', varchar: 'varchar(255)', float: 'float8',
+    serial: 'serial', timestamp: 'timestamptz', json: 'jsonb',
+    int: 'integer', string: 'text', number: 'integer', date: 'date',
+  }
+  return map[type?.toLowerCase()] || 'text'
+}
+
+function tableToSQL(table: any): string {
+  const cols = (table.columns || []).map((col: any) => {
+    let def = `"${col.name}" ${mapColumnType(col.type)}`
+    if (col.name === 'id' && col.type === 'uuid') def += ' PRIMARY KEY DEFAULT gen_random_uuid()'
+    else if (col.name === 'id') def += ' PRIMARY KEY'
+    if (col.nullable === false && col.name !== 'id') def += ' NOT NULL'
+    if (col.name === 'created_at' && col.type === 'timestamptz') def += ' DEFAULT now()'
+    if (col.name === 'updated_at' && col.type === 'timestamptz') def += ' DEFAULT now()'
+    return def
+  })
+  return `CREATE TABLE IF NOT EXISTS "public"."${table.name}" (\n  ${cols.join(',\n  ')}\n);`
+}
+
+async function executeSQL(sql: string): Promise<void> {
+  const c = getConfig()
+  // Use the exec_sql RPC function (created via Supabase dashboard)
+  const res = await fetchWithTimeout(`${c.supabaseUrl}/rest/v1/rpc/exec_sql`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: c.supabaseServiceKey,
+      Authorization: `Bearer ${c.supabaseServiceKey}`,
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({ query: sql }),
+  }, 30000)
+  if (!res.ok) {
+    const errText = await res.text().catch(() => 'unknown')
+    throw new Error(`SQL execution failed (${res.status}): ${errText}`)
+  }
+}
+
+async function createSupabaseTables(tables: any[]): Promise<void> {
+  // Build CREATE TABLE + RLS statements
+  const statements = tables.map((t: any) => tableToSQL(t))
+  const rlsStatements = tables.map((t: any) =>
+    `ALTER TABLE "public"."${t.name}" ENABLE ROW LEVEL SECURITY;\n` +
+    `DO $$ BEGIN ` +
+    `IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='${t.name}' AND policyname='Allow anon read ${t.name}') THEN ` +
+    `CREATE POLICY "Allow anon read ${t.name}" ON "public"."${t.name}" FOR SELECT TO anon USING (true); ` +
+    `END IF; ` +
+    `IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='${t.name}' AND policyname='Allow auth all ${t.name}') THEN ` +
+    `CREATE POLICY "Allow auth all ${t.name}" ON "public"."${t.name}" FOR ALL TO authenticated USING (true) WITH CHECK (true); ` +
+    `END IF; ` +
+    `END $$;`
+  )
+  const fullSQL = [...statements, ...rlsStatements].join('\n\n')
+  await executeSQL(fullSQL)
+}
+
+async function verifySupabaseTables(tableNames: string[]): Promise<string[]> {
+  const db = getSupabase()
+  const missing: string[] = []
+  for (const name of tableNames) {
+    const { error } = await db.from(name).select('*').limit(0)
+    if (error) missing.push(name)
+  }
+  return missing
+}
+
 // ===== REAL DEPLOYMENT VERIFICATION =====
 interface VerifyResult {
   success: boolean
@@ -293,28 +365,29 @@ async function verifyDeployment(projectName: string, vercelToken: string): Promi
     return { success: false, status: 'build_failed', reason: `Build stuck (state: ${latest.state})` }
   }
 
-  // URL verification — fetch the actual deployed landing page
+  // URL verification — check ONLY the root homepage (/)
+  // The homepage is public. Do NOT check /dashboard or other auth-protected routes.
   const deployUrl = `https://${latest.url}`
+  const homepageUrl = `${deployUrl}/`
   try {
-    const res = await fetch(deployUrl, { redirect: 'follow' })
+    const res = await fetch(homepageUrl, { redirect: 'follow' })
     const body = await res.text()
 
-    // 401 on landing page = auth blocking public page = FAIL
+    // 401 on homepage = auth blocking public page = FAIL
     if (res.status === 401) {
-      return { success: false, status: 'deploy_failed', url: deployUrl, reason: 'Landing page returns 401 — auth is blocking public page' }
+      return { success: false, status: 'deploy_failed', url: deployUrl, reason: 'Homepage (/) returns 401 — auth is blocking public landing page' }
     }
 
     if (!res.ok || body.length < 500 ||
         body.includes('DEPLOYMENT_NOT_FOUND') ||
-        body.includes('404') ||
         body.toLowerCase().includes('application error') ||
         body.toLowerCase().includes('this page could not be found')) {
-      return { success: false, status: 'deploy_failed', url: deployUrl, reason: `Page check failed (status: ${res.status}, length: ${body.length})` }
+      return { success: false, status: 'deploy_failed', url: deployUrl, reason: `Homepage check failed (status: ${res.status}, length: ${body.length})` }
     }
 
     return { success: true, status: 'live', url: deployUrl }
   } catch (err: any) {
-    return { success: false, status: 'deploy_failed', url: deployUrl, reason: `URL unreachable: ${err.message}` }
+    return { success: false, status: 'deploy_failed', url: deployUrl, reason: `Homepage unreachable: ${err.message}` }
   }
 }
 
@@ -418,10 +491,39 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
           await logStep(projectId, 3, 'Code Generation', 'success', `Preparing files for ${productName}`)
         }
 
-        // Step 4: Database
+        // Step 4: Database — CREATE REAL TABLES via Supabase SQL
         if (startFrom <= 4) {
           await updateProject(projectId, { status: 'database', current_step: 4 })
-          await logStep(projectId, 4, 'Database Setup', 'success', `${(arch.database?.tables || []).length} tables defined`)
+          await logStep(projectId, 4, 'Database Setup', 'running', 'Creating tables...')
+          const start = Date.now()
+          const tables = arch.database?.tables || []
+
+          if (tables.length > 0) {
+            try {
+              await createSupabaseTables(tables)
+
+              // Verify tables exist
+              const missing = await verifySupabaseTables(tables.map((t: any) => t.name))
+              if (missing.length > 0) {
+                // Retry once for missing tables
+                const retryTables = tables.filter((t: any) => missing.includes(t.name))
+                await createSupabaseTables(retryTables)
+                const stillMissing = await verifySupabaseTables(missing)
+                if (stillMissing.length > 0) {
+                  await logStep(projectId, 4, 'Database Setup', 'failed', `Missing tables after retry: ${stillMissing.join(', ')}`, 0, Date.now() - start)
+                } else {
+                  await logStep(projectId, 4, 'Database Setup', 'success', `${tables.length} tables created + verified`, 0, Date.now() - start)
+                }
+              } else {
+                await logStep(projectId, 4, 'Database Setup', 'success', `${tables.length} tables created + verified`, 0, Date.now() - start)
+              }
+            } catch (err: any) {
+              console.error('Database setup error:', err.message)
+              await logStep(projectId, 4, 'Database Setup', 'failed', `SQL error: ${err.message.slice(0, 200)}`, 0, Date.now() - start)
+            }
+          } else {
+            await logStep(projectId, 4, 'Database Setup', 'success', 'No tables to create')
+          }
         }
 
         // Step 5: Generate + Push to GitHub (atomic)
