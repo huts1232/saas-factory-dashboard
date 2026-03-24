@@ -146,6 +146,23 @@ MANDATORY RULES:
 - NO TODO comments — write real code
 - NO placeholder data — use real Supabase queries
 - NO imports from non-existent files
+
+CRASH PREVENTION (every page):
+- Add this error boundary helper at the top of the file (after imports):
+  function ErrorFallback({ error }: { error: string }) {
+    return <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8"><div className="text-red-400 bg-red-400/10 border border-red-400/20 rounded-xl p-6 max-w-md"><h2 className="text-lg font-bold mb-2">Something went wrong</h2><p className="text-sm">{error}</p></div></div>
+  }
+- The component MUST have a top-level try/catch: wrap the return JSX in try {} catch(e) { return <ErrorFallback error={(e as Error).message} /> }
+- Add a [error, setError] useState. If error is set, render <ErrorFallback error={error} /> instead of the page.
+- Wrap ALL Supabase calls in try/catch that calls setError(err.message) and console.error('Supabase error:', err)
+- The page MUST render visible content even if every Supabase call fails — never return null or an empty div
+
+FORM SUBMISSION (every form/action):
+- On submit, wrap INSERT/UPDATE in try/catch and show the EXACT error to the user via setError or alert(error.message)
+- Log every Supabase response: console.log('Supabase response:', data, error)
+- If INSERT fails, show the raw error message so we can debug column mismatches
+- After successful INSERT, immediately re-fetch the list to confirm it worked
+- Never silently swallow errors
 - DESIGN: Use a dark, premium SaaS theme. Dark backgrounds (slate-900, slate-800), white text, purple/blue gradient accents. Every page must look polished and professional with proper spacing, rounded corners, hover states.
 - Output ONLY the file content. No markdown, no explanation.`
 
@@ -440,7 +457,14 @@ async function verifyDeployment(projectName: string, vercelToken: string): Promi
 const IDEATION_SYSTEM = `You are a senior product manager. Create detailed, buildable SaaS specs. Max 5 features with exact user flows.`
 const IDEATION_PROMPT = (idea: string) => `Turn this into a SaaS spec: "${idea}"\n\nJSON:\n{"productName":"2-3 word name","tagline":"one-line","description":"2-3 sentences","targetUser":"specific person","features":[{"name":"..","description":"..","priority":"mvp|nice-to-have"}],"monetization":{"model":"freemium","suggestedPrice":"$X/mo"},"userFlows":["Step 1:.."]}`
 
-const ARCHITECTURE_SYSTEM = `You are a senior architect designing Next.js 14 + Supabase apps. Be thorough with table columns and API routes. Always include a 'chatbots' table with columns: id (uuid, primary key, default gen_random_uuid()), user_id (uuid), name (text, not null), description (text), website_url (text), welcome_message (text), is_active (boolean, default true), created_at (timestamptz, default now()).`
+const ARCHITECTURE_SYSTEM = `You are a senior architect designing Next.js 14 + Supabase apps. Be thorough with table columns and API routes. Always include a 'chatbots' table with columns: id (uuid, primary key, default gen_random_uuid()), user_id (uuid), name (text, not null), description (text), website_url (text), welcome_message (text), is_active (boolean, default true), created_at (timestamptz, default now()).
+
+MANDATORY TABLE RULES:
+- Always include a 'users_data' table: id (uuid, primary key), user_id (uuid), created_at (timestamptz)
+- Table names MUST be lowercase with underscores only (e.g. meal_plans, NOT MealPlans)
+- Column names MUST be lowercase with underscores only
+- Every table MUST have these columns: id (uuid, primary key, default gen_random_uuid()), user_id (uuid), created_at (timestamptz, default now())
+- Column names must match exactly what the frontend pages will query`
 const ARCHITECTURE_PROMPT = (f: any) => `Architecture for: ${f.productName}\n${f.description}\nFeatures: ${JSON.stringify(f.features)}\n\nJSON:\n{"database":{"tables":[{"name":"..","description":"..","columns":[{"name":"..","type":"uuid|text|integer|boolean|timestamptz|jsonb|decimal","nullable":false}]}]},"fileStructure":[{"path":"app/page.tsx","description":".."}],"apiRoutes":[{"path":"/api/..","method":"GET|POST","description":".."}],"components":[]}`
 
 // ===== MAIN PIPELINE =====
