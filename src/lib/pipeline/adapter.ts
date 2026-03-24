@@ -164,11 +164,18 @@ FORM SUBMISSION (every form/action):
 - After successful INSERT, immediately re-fetch the list to confirm it worked
 - Never silently swallow errors
 - DESIGN: Use a dark, premium SaaS theme. Dark backgrounds (slate-900, slate-800), white text, purple/blue gradient accents. Every page must look polished and professional with proper spacing, rounded corners, hover states.
-- Output ONLY the file content. No markdown, no explanation.`
+- Output ONLY the file content. No markdown, no explanation.
 
-  const dbSchema = arch.database?.tables?.map((t: any) => `${t.name}(${t.columns?.map((c: any) => c.name).join(', ')})`).join('; ') || ''
+CRITICAL DATABASE RULE: You will receive the EXACT database schema with every table and column name.
+Only query columns that are explicitly listed in the schema. Never assume a column exists.
+Never use column names not in the schema list. If you want to filter by 'status', check if 'status' exists in the schema first.
+If a column you need doesn't exist, use a column that DOES exist instead, or skip that feature.`
 
-  const prompt = `Generate: ${filePath}\nDescription: ${fileDesc}\nProduct: ${features.productName} — ${features.tagline}\nDB: ${dbSchema}\nFiles: ${allPaths.slice(0, 10).join(', ')}\nPricing: ${features.monetization?.suggestedPrice || '$9/mo'}\n\nSelf-contained file. No imports from @/components or @/lib.`
+  const schemaDetails = arch.database?.tables?.map((t: any) =>
+    `Table "${t.name}": columns = [${(t.columns || []).map((c: any) => `${c.name} (${c.type})`).join(', ')}]`
+  ).join('\n') || 'No tables defined'
+
+  const prompt = `Generate: ${filePath}\nDescription: ${fileDesc}\nProduct: ${features.productName} — ${features.tagline}\nFiles: ${allPaths.slice(0, 10).join(', ')}\nPricing: ${features.monetization?.suggestedPrice || '$9/mo'}\n\nEXACT DATABASE SCHEMA — only use these exact column names, nothing else:\n${schemaDetails}\n\nDO NOT invent column names. DO NOT use columns not listed above. If you need a column that doesn't exist, use a column that does exist instead.\n\nSelf-contained file. No imports from @/components or @/lib.`
   // Landing page needs more tokens for full design
   const maxTokens = filePath.includes('page.tsx') && !filePath.includes('dashboard') && !filePath.includes('login') && !filePath.includes('signup') && !filePath.includes('settings') && !filePath.includes('admin') ? 16384 : 8192
   const { text } = await askClaude(prompt, system, maxTokens)
