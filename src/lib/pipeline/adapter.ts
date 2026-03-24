@@ -304,22 +304,57 @@ async function executeSQL(sql: string): Promise<void> {
   }
 }
 
-async function createSupabaseTables(tables: any[]): Promise<void> {
-  // Build CREATE TABLE + RLS statements
-  const statements = tables.map((t: any) => tableToSQL(t))
-  const rlsStatements = tables.map((t: any) =>
-    `ALTER TABLE "public"."${t.name}" ENABLE ROW LEVEL SECURITY;\n` +
-    `DO $$ BEGIN ` +
-    `IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='${t.name}' AND policyname='Allow anon read ${t.name}') THEN ` +
-    `CREATE POLICY "Allow anon read ${t.name}" ON "public"."${t.name}" FOR SELECT TO anon USING (true); ` +
-    `END IF; ` +
-    `IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='${t.name}' AND policyname='Allow auth all ${t.name}') THEN ` +
-    `CREATE POLICY "Allow auth all ${t.name}" ON "public"."${t.name}" FOR ALL TO authenticated USING (true) WITH CHECK (true); ` +
-    `END IF; ` +
-    `END $$;`
-  )
-  const fullSQL = [...statements, ...rlsStatements].join('\n\n')
-  await executeSQL(fullSQL)
+// Mandatory tables that every generated app needs, regardless of architecture
+const MANDATORY_TABLES = [
+  {
+    name: 'profiles',
+    columns: [
+      { name: 'id', type: 'uuid', nullable: false },
+      { name: 'user_id', type: 'uuid', nullable: false },
+      { name: 'full_name', type: 'text', nullable: true },
+      { name: 'email', type: 'text', nullable: true },
+      { name: 'avatar_url', type: 'text', nullable: true },
+      { name: 'created_at', type: 'timestamptz', nullable: true },
+    ],
+  },
+]
+
+async function createSupabaseTables(tables: any[]): Promise<{ created: string[]; failed: string[] }> {
+  // Merge mandatory tables (skip if already in list)
+  const tableNames = new Set(tables.map((t: any) => t.name))
+  const allTables = [...tables]
+  for (const mt of MANDATORY_TABLES) {
+    if (!tableNames.has(mt.name)) allTables.push(mt)
+  }
+
+  const created: string[] = []
+  const failed: string[] = []
+
+  // Create each table individually so one failure doesn't block others
+  for (const table of allTables) {
+    try {
+      const createSQL = tableToSQL(table)
+      const rlsSQL = `ALTER TABLE "public"."${table.name}" ENABLE ROW LEVEL SECURITY;\n` +
+        `DO $$ BEGIN ` +
+        `IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='${table.name}' AND policyname='Allow anon read ${table.name}') THEN ` +
+        `CREATE POLICY "Allow anon read ${table.name}" ON "public"."${table.name}" FOR SELECT TO anon USING (true); ` +
+        `END IF; ` +
+        `IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='${table.name}' AND policyname='Allow auth all ${table.name}') THEN ` +
+        `CREATE POLICY "Allow auth all ${table.name}" ON "public"."${table.name}" FOR ALL TO authenticated USING (true) WITH CHECK (true); ` +
+        `END IF; ` +
+        `END $$;`
+      // Ensure user_id column exists on every table
+      const userIdSQL = `ALTER TABLE "public"."${table.name}" ADD COLUMN IF NOT EXISTS user_id uuid;`
+      await executeSQL(`${createSQL}\n${rlsSQL}\n${userIdSQL}`)
+      created.push(table.name)
+      console.log(`Table created: ${table.name}`)
+    } catch (err: any) {
+      failed.push(table.name)
+      console.error(`Table ${table.name} failed: ${err.message}`)
+    }
+  }
+
+  return { created, failed }
 }
 
 async function verifySupabaseTables(tableNames: string[]): Promise<string[]> {
@@ -508,21 +543,23 @@ export async function runPipeline(projectId: string, options: PipelineOptions = 
           const start = Date.now()
           const tables = arch.database?.tables || []
 
-          if (tables.length > 0) {
-            try {
-              await createSupabaseTables(tables)
-              const missing = await verifySupabaseTables(tables.map((t: any) => t.name))
-              if (missing.length > 0) {
-                const retryTables = tables.filter((t: any) => missing.includes(t.name))
-                await createSupabaseTables(retryTables)
-              }
-              await logStep(projectId, 4, 'Database Setup', 'success', `${tables.length} tables created`, 0, Date.now() - start)
-            } catch (err: any) {
-              console.error('Database setup error:', err.message)
-              await logStep(projectId, 4, 'Database Setup', 'failed', `SQL error: ${err.message.slice(0, 200)}`, 0, Date.now() - start)
+          try {
+            // Always create tables (includes mandatory ones like profiles even if arch has none)
+            const { created, failed } = await createSupabaseTables(tables)
+            // Verify and retry any missing
+            const allTableNames = [...tables.map((t: any) => t.name), ...MANDATORY_TABLES.map(t => t.name)]
+            const missing = await verifySupabaseTables(allTableNames)
+            if (missing.length > 0) {
+              const retryTables = [...tables, ...MANDATORY_TABLES].filter((t: any) => missing.includes(t.name))
+              await createSupabaseTables(retryTables)
             }
-          } else {
-            await logStep(projectId, 4, 'Database Setup', 'success', 'No tables to create')
+            const msg = failed.length > 0
+              ? `${created.length} tables created, ${failed.length} failed: ${failed.join(', ')}`
+              : `${created.length} tables created + verified`
+            await logStep(projectId, 4, 'Database Setup', failed.length > 0 ? 'warning' : 'success', msg, 0, Date.now() - start)
+          } catch (err: any) {
+            console.error('Database setup error:', err.message)
+            await logStep(projectId, 4, 'Database Setup', 'failed', `SQL error: ${err.message.slice(0, 200)}`, 0, Date.now() - start)
           }
         }
 
