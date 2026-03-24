@@ -39,6 +39,17 @@ export function Sidebar() {
     loadData()
   }, [user?.id, isAdmin])
 
+  // Real-time subscription for new projects
+  useEffect(() => {
+    if (!user) return
+    const channel = supabase
+      .channel('projects')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'factory_projects' },
+        (payload: any) => setRecentProjects(prev => [payload.new, ...prev]))
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [user?.id])
+
   async function handleLogout() {
     await supabase.auth.signOut()
     router.push('/')
