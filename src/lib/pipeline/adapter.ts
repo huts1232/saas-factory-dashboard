@@ -227,7 +227,9 @@ async function createVercelProject(projectName: string, repoName: string): Promi
   const check = await fetchWithTimeout(`https://api.vercel.com/v9/projects/${projectName}`, { headers: { Authorization: `Bearer ${c.vercelToken}` } })
   if (check.ok) {
     const existing = await check.json()
-    return { url: `https://${projectName}.vercel.app`, projectId: existing.id }
+    // Use actual alias/domain from Vercel instead of assumed .vercel.app URL
+    const actualUrl = existing.alias?.[0] ? `https://${existing.alias[0]}` : `https://${projectName}.vercel.app`
+    return { url: actualUrl, projectId: existing.id }
   }
 
   const res = await fetchWithTimeout('https://api.vercel.com/v10/projects', {
@@ -236,7 +238,9 @@ async function createVercelProject(projectName: string, repoName: string): Promi
   })
   if (!res.ok) throw new Error(`Vercel project creation failed: ${await res.text()}`)
   const data = await res.json()
-  return { url: `https://${projectName}.vercel.app`, projectId: data.id }
+  // Use actual alias/domain from response if available
+  const actualUrl = data.alias?.[0] ? `https://${data.alias[0]}` : `https://${projectName}.vercel.app`
+  return { url: actualUrl, projectId: data.id }
 }
 
 async function setVercelEnvVars(projectName: string) {
@@ -401,7 +405,7 @@ async function verifyDeployment(projectName: string, vercelToken: string): Promi
 const IDEATION_SYSTEM = `You are a senior product manager. Create detailed, buildable SaaS specs. Max 5 features with exact user flows.`
 const IDEATION_PROMPT = (idea: string) => `Turn this into a SaaS spec: "${idea}"\n\nJSON:\n{"productName":"2-3 word name","tagline":"one-line","description":"2-3 sentences","targetUser":"specific person","features":[{"name":"..","description":"..","priority":"mvp|nice-to-have"}],"monetization":{"model":"freemium","suggestedPrice":"$X/mo"},"userFlows":["Step 1:.."]}`
 
-const ARCHITECTURE_SYSTEM = `You are a senior architect designing Next.js 14 + Supabase apps. Be thorough with table columns and API routes.`
+const ARCHITECTURE_SYSTEM = `You are a senior architect designing Next.js 14 + Supabase apps. Be thorough with table columns and API routes. Always include a 'chatbots' table with columns: id (uuid, primary key, default gen_random_uuid()), user_id (uuid), name (text, not null), description (text), website_url (text), welcome_message (text), is_active (boolean, default true), created_at (timestamptz, default now()).`
 const ARCHITECTURE_PROMPT = (f: any) => `Architecture for: ${f.productName}\n${f.description}\nFeatures: ${JSON.stringify(f.features)}\n\nJSON:\n{"database":{"tables":[{"name":"..","description":"..","columns":[{"name":"..","type":"uuid|text|integer|boolean|timestamptz|jsonb|decimal","nullable":false}]}]},"fileStructure":[{"path":"app/page.tsx","description":".."}],"apiRoutes":[{"path":"/api/..","method":"GET|POST","description":".."}],"components":[]}`
 
 // ===== MAIN PIPELINE =====
@@ -619,6 +623,10 @@ CRITICAL: No auth checks, no Supabase imports, no getUser, no createClient. Pure
 Never show 'check your email'. Always redirect to /dashboard on any success. Also add a "Sign up with Google" button: supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/dashboard' } }). NEVER hardcode any URL — always use window.location.origin. Centered card layout with link to /login.` },
             { path: 'app/settings/page.tsx', desc: `Settings page for ${productName}. AUTH GUARD: In a useEffect, call supabase.auth.getUser(). If no user, router.push('/login'). Show loading spinner while checking. Then render: user profile section (name, email from the user object), plan info, danger zone (delete account). 'use client' with Supabase.` },
             { path: 'app/admin/page.tsx', desc: `Admin panel for ${productName}. AUTH GUARD: In a useEffect, call supabase.auth.getUser(). If no user, router.push('/login'). Show loading spinner while checking. Then render: users table from Supabase, stats cards (total users, revenue), recent activity. 'use client' with Supabase.` },
+            { path: 'app/dashboard/chatbots/page.tsx', desc: `Chatbots list page for ${productName}: show all chatbots from Supabase in a grid of cards. Each card shows name, description, status (active/inactive toggle), created date, and Edit/Delete buttons. "Create New" button opens a modal with form fields: name, description, website URL, welcome message. On submit INSERT into chatbots table. Delete button removes from chatbots table. 'use client' with Supabase. Full working implementation.` },
+            { path: 'app/dashboard/conversations/page.tsx', desc: `Conversations page for ${productName}: table showing all conversations from Supabase with columns: chatbot name, visitor message, response, date, duration. Empty state if none. 'use client' with Supabase.` },
+            { path: 'app/dashboard/analytics/page.tsx', desc: `Analytics page for ${productName}: stats cards (total conversations, avg response time, satisfaction score), bar chart using inline SVG (no external chart library), recent activity list. All data from Supabase. 'use client'.` },
+            { path: 'app/dashboard/settings/page.tsx', desc: `Settings page for ${productName}: tabs for Profile (name, email from supabase auth.getUser()), Notifications (toggle switches), Danger Zone (delete account button with confirmation). Save button updates Supabase. 'use client'.` },
           ]
           await logStep(projectId, 5, 'GitHub Push', 'running', `Generating ${pages.length} pages in parallel...`)
           const results = await Promise.allSettled(
